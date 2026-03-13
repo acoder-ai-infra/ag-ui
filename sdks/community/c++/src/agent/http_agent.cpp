@@ -192,7 +192,6 @@ void HttpAgent::runAgent(const RunAgentParams& params, AgentSuccessCallback onSu
         
         // Check if should continue
         if (!middlewareContext.shouldContinue) {
-            Logger::info("Middleware stopped execution");
             if (onError) {
                 onError("Middleware stopped execution");
             }
@@ -228,24 +227,29 @@ void HttpAgent::runAgent(const RunAgentParams& params, AgentSuccessCallback onSu
             this->handleStreamComplete(response, onSuccess, onError);
         },
         [onError](const AgentError& error) {
-            onError(error.fullMessage());
+            if (onError) {
+                onError(error.fullMessage());
+            }
         });
 }
 
 void HttpAgent::handleStreamData(const HttpResponse& response) {
     // Feed data incrementally without clearing parser
     _sseParser->feed(response.content);
-    
-    // Process all complete events available
-    processAvailableEvents();
+    std::string processErrorContent;
+    bool processResult = processAvailableEvents(processErrorContent);
+    if (!processResult) {
+        Logger::errorf("Error occured, " + processErrorContent);
+    }
 }
 
-void HttpAgent::processAvailableEvents() {
+bool HttpAgent::processAvailableEvents(std::string &errorContent) {    
     // Prepare middleware context
     MiddlewareContext middlewareContext(nullptr, nullptr);
     middlewareContext.currentMessages = &_eventHandler->messages();
     middlewareContext.currentState = &_eventHandler->state();
 
+    bool processEventResult = true;
     // Process all available SSE events
     while (_sseParser->hasEvent()) {
         try {
@@ -256,8 +260,13 @@ void HttpAgent::processAvailableEvents() {
             nlohmann::json eventJson = nlohmann::json::parse(eventData);
             // Parse as Event object
             std::unique_ptr<Event> event(EventParser::parse(eventJson));
-
             if (!event) {
+                continue;
+            }
+            bool preCheckRet = _eventHandler->preCheckEvent(event.get(), errorContent);
+            if (!preCheckRet) {
+                processEventResult = false;
+                Logger::errorf("Error occured. error:%s", errorContent.c_str());
                 continue;
             }
             // Process event through middleware
@@ -299,6 +308,8 @@ void HttpAgent::processAvailableEvents() {
     if (!_sseParser->getLastError().empty()) {
         Logger::warningf("SSE parser error: ", _sseParser->getLastError());
     }
+    
+    return processEventResult;
 }
 
 void HttpAgent::handleStreamComplete(const HttpResponse& response, AgentSuccessCallback onSuccess,
@@ -317,8 +328,9 @@ void HttpAgent::handleStreamComplete(const HttpResponse& response, AgentSuccessC
     // Flush any remaining data in parser buffer
     _sseParser->flush();
     
-    // Process any remaining events
-    processAvailableEvents();
+    // Process any remaining events and check for errors
+    std::string processedErrorContent;
+    bool processResult = processAvailableEvents(processedErrorContent);
 
     // Collect results
     RunAgentResult result;
@@ -338,9 +350,15 @@ void HttpAgent::handleStreamComplete(const HttpResponse& response, AgentSuccessC
         result = _middlewareChain.processResponse(result, middlewareContext);
     }
 
-    // Call success callback
-    if (onSuccess) {
-        onSuccess(result);
+    // Call appropriate callback based on error state
+    if (!processResult) {
+        if (onError) {
+            onError("error occurred during event processing: " + processedErrorContent);
+        }
+    } else {
+        if (onSuccess) {
+            onSuccess(result);
+        }
     }
 }
 

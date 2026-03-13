@@ -212,8 +212,9 @@ private:
 
     /**
      * @brief Process all available events from SSE parser
+     * @return false if an error occurred during event processing, true otherwise
      */
-    void processAvailableEvents();
+    bool processAvailableEvents(std::string &errorContent);
 
     std::string _baseUrl;
     std::map<std::string, std::string> _headers;

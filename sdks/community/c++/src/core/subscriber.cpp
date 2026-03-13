@@ -12,6 +12,24 @@ EventHandler::EventHandler(std::vector<Message> messages, const std::string &sta
       m_state(state),
       m_subscribers(std::move(subscribers)) {}
 
+bool EventHandler::preCheckEvent(const Event* event, std::string &errorContent) {
+    if (!event) {
+        errorContent = "Null event pointer";
+        return false;
+    }
+    if (event->type() == EventType::RunError) {
+        errorContent = "Run Error event";
+        return false;
+    }
+    try {
+        event->validate();
+    } catch(const AgentError &error) {
+        errorContent = error.fullMessage();
+        return false;
+    }
+    return true;
+}
+
 AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
     if (!event) {
         return AgentStateMutation();
@@ -215,11 +233,13 @@ AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
             });
             break;
 
-        case EventType::RunError:
+        case EventType::RunError: {
+            auto* e = static_cast<RunErrorEvent*>(event.get());
             specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onRunError(*static_cast<RunErrorEvent*>(event.get()), params);
+                return sub->onRunError(*e, params);
             });
             break;
+        }
 
         case EventType::StepStarted:
             specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
@@ -252,17 +272,6 @@ AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
 }
 
 void EventHandler::applyMutation(const AgentStateMutation& mutation) {
-#if __cplusplus >= 201703L
-    if (mutation.messages.has_value()) {
-        m_messages = mutation.messages.value();
-        notifyMessagesChanged();
-    }
-
-    if (mutation.state.has_value()) {
-        m_state = mutation.state.value().dump();
-        notifyStateChanged();
-    }
-#else
     if (mutation.messages) {
         m_messages = *mutation.messages;
         notifyMessagesChanged();
@@ -272,7 +281,6 @@ void EventHandler::applyMutation(const AgentStateMutation& mutation) {
         m_state = mutation.state->dump();
         notifyStateChanged();
     }
-#endif
 }
 
 void EventHandler::addSubscriber(std::shared_ptr<IAgentSubscriber> subscriber) {
@@ -393,21 +401,12 @@ AgentStateMutation EventHandler::notifySubscribers(
     for (auto& subscriber : m_subscribers) {
         AgentStateMutation mutation = notifyFunc(subscriber.get(), params);
 
-#if __cplusplus >= 201703L
-        if (mutation.messages.has_value()) {
-            finalMutation.messages = mutation.messages;
-        }
-        if (mutation.state.has_value()) {
-            finalMutation.state = mutation.state;
-        }
-#else
         if (mutation.messages) {
             finalMutation.messages.reset(new std::vector<Message>(*mutation.messages));
         }
         if (mutation.state) {
             finalMutation.state.reset(new nlohmann::json(*mutation.state));
         }
-#endif
 
         if (mutation.stopPropagation) {
             finalMutation.stopPropagation = true;
