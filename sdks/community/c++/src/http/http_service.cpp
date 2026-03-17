@@ -1,5 +1,4 @@
 #include "http/http_service.h"
-#include <mutex>
 #include <curl/curl.h>
 #include "core/logger.h"
 
@@ -56,11 +55,14 @@ void HttpService::sendRequest(const HttpRequest& request, HttpResponseCallback r
 
         // Build response
         response.statusCode = static_cast<int>(statusCode);
-        response.body = responseBody;
         response.content = responseBody;
 
-        // Get response headers (simplified)
-        response.headers["Content-Type"] = "application/json";
+        // Get actual Content-Type from server response
+        char* contentType = nullptr;
+        curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &contentType);
+        if (contentType) {
+            response.headers["Content-Type"] = contentType;
+        }
 
         // Cleanup
         curl_slist_free_all(headers);

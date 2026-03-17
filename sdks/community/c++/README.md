@@ -21,7 +21,7 @@ A community C++ implementation of the [AG-UI Protocol](https://github.com/ag-ui-
 ### Synchronous API Design
 
 The `runAgent()` method uses a **synchronous blocking API**. This is an intentional design decision that provides maximum flexibility for different application architectures. 
-Different applications have different threading requirements. We sugggest choose the threading model that best fits its architecture.
+Different applications have different threading requirements. We suggest choose the threading model that best fits its architecture.
 
 #### Implementation
 

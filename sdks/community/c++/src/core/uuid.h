@@ -39,7 +39,7 @@ private:
     /**
      * @brief Global counter (thread-safe)
      */
-    static std::atomic<uint32_t> _counter;
+    static std::atomic<uint32_t> m_counter;
 };
 
 }  // namespace agui

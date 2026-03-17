@@ -9,8 +9,9 @@ namespace agui {
 EventHandler::EventHandler(std::vector<Message> messages, const std::string &state,
                            std::vector<std::shared_ptr<IAgentSubscriber>> subscribers)
     : m_messages(std::move(messages)),
-      m_state(state),
-      m_subscribers(std::move(subscribers)) {}
+      m_subscribers(std::move(subscribers)) {
+          m_state = state.empty() ? "{}" : state;
+      }
 
 AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
     if (!event) {
@@ -78,6 +79,12 @@ AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
         case EventType::RunError:
             handleRunError(*static_cast<RunErrorEvent*>(event.get()));
             break;
+        case EventType::ActivitySnapshot:
+            handleActivitySnapshot(*static_cast<ActivitySnapshotEvent*>(event.get()));
+            break;
+        case EventType::ActivityDelta:
+            handleActivityDelta(*static_cast<ActivityDeltaEvent*>(event.get()));
+            break;
 
         default:
             break;
@@ -123,13 +130,8 @@ AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
 
         case EventType::ThinkingTextMessageContent: {
             auto* e = static_cast<ThinkingTextMessageContentEvent*>(event.get());
-            // Use buffer from the last message (thinking messages don't have messageId)
-            std::string buffer;
-            if (!m_messages.empty()) {
-                buffer = m_textBuffers[m_messages.back().id()];
-            }
             specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
-                return sub->onThinkingTextMessageContent(*e, buffer, params);
+                return sub->onThinkingTextMessageContent(*e, m_thinkingBuffer, params);
             });
             break;
         }
@@ -221,6 +223,18 @@ AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
             });
             break;
 
+        case EventType::ActivitySnapshot:
+            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
+                return sub->onActivitySnapshot(*static_cast<ActivitySnapshotEvent*>(event.get()), params);
+            });
+            break;
+
+        case EventType::ActivityDelta:
+            specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
+                return sub->onActivityDelta(*static_cast<ActivityDeltaEvent*>(event.get()), params);
+            });
+            break;
+
         case EventType::StepStarted:
             specificMutation = notifySubscribers([&](IAgentSubscriber* sub, const AgentSubscriberParams& params) {
                 return sub->onStepStarted(*static_cast<StepStartedEvent*>(event.get()), params);
@@ -278,12 +292,14 @@ void EventHandler::clearSubscribers() {
 }
 
 void EventHandler::handleTextMessageStart(const TextMessageStartEvent& event) {
-    // Use createAssistantWithId to ensure the message uses the ID from the event
-    // This is critical for TEXT_MESSAGE_START/CONTENT/END event correlation
-    Message message = Message::createAssistantWithId(event.messageId, "");
-    m_messages.push_back(message);
+    Message* existingMessage = findMessage(event.messageId);
+    if (!existingMessage) {
+        // Reuse any placeholder message created by TOOL_CALL_START when IDs match.
+        Message message = Message::createWithId(event.messageId, Message::roleFromString(event.role), "");
+        m_messages.push_back(message);
+        notifyNewMessage(m_messages.back());
+    }
     m_textBuffers[event.messageId] = "";
-    notifyNewMessage(message);
 }
 
 void EventHandler::handleTextMessageContent(const TextMessageContentEvent& event) {
@@ -300,22 +316,32 @@ void EventHandler::handleTextMessageEnd(const TextMessageEndEvent& event) {
 }
 
 void EventHandler::handleThinkingTextMessageStart(const ThinkingTextMessageStartEvent& event) {
-    // Thinking messages are not persisted to message history
-    // They represent the AI's internal reasoning process and are only for real-time display
+    // Thinking messages are not persisted to message history; clear the dedicated buffer
+    m_thinkingBuffer.clear();
+    (void)event;
 }
 
 void EventHandler::handleThinkingTextMessageContent(const ThinkingTextMessageContentEvent& event) {
+    m_thinkingBuffer += event.delta;
 }
 
 void EventHandler::handleThinkingTextMessageEnd(const ThinkingTextMessageEndEvent& event) {
+    m_thinkingBuffer.clear();
+    (void)event;
 }
 
 void EventHandler::handleToolCallStart(const ToolCallStartEvent& event) {
-    Message* msg = findMessage(event.parentMessageId);
+    Message* msg = nullptr;
+
+    if (event.parentMessageId.has_value() && !m_messages.empty() &&
+        m_messages.back().id() == event.parentMessageId.value()) {
+        msg = &m_messages.back();
+    }
+
     if (!msg) {
-        // Use createAssistantWithId to ensure the message uses the ID from the event
-        // This is critical for TOOL_CALL_START/ARGS/END event correlation
-        Message message = Message::createAssistantWithId(event.parentMessageId, "");
+        const MessageId targetMessageId =
+            event.parentMessageId.has_value() ? event.parentMessageId.value() : event.toolCallId;
+        Message message = Message::createWithId(targetMessageId, MessageRole::Assistant, "");
         m_messages.push_back(message);
         msg = &m_messages.back();
     }
@@ -332,7 +358,7 @@ void EventHandler::handleToolCallStart(const ToolCallStartEvent& event) {
 
 void EventHandler::handleToolCallArgs(const ToolCallArgsEvent& event) {
     m_toolCallArgsBuffers[event.toolCallId] += event.delta;
-    appendEventDelta(event.messageId, event.toolCallId, event.delta);
+    appendEventDelta(event.toolCallId, event.delta);
 }
 
 void EventHandler::handleToolCallEnd(const ToolCallEndEvent& event) {
@@ -352,7 +378,7 @@ void EventHandler::handleStateDelta(const StateDeltaEvent& event) {
         m_state = stateManager.currentState().dump();
         notifyStateChanged();
     } catch(const std::exception &e) {
-        Logger::errorf("incorrect json object: ", m_state);
+        Logger::errorf("handleStateDelta: failed to apply patch: ", e.what());
     }
 }
 
@@ -383,18 +409,22 @@ AgentStateMutation EventHandler::notifySubscribers(
     AgentSubscriberParams params = createParams();
 
     for (auto& subscriber : m_subscribers) {
-        AgentStateMutation mutation = notifyFunc(subscriber.get(), params);
-
-        if (mutation.messages.has_value()) {
-            finalMutation.messages = mutation.messages;
-        }
-        if (mutation.state.has_value()) {
-            finalMutation.state = mutation.state;
-        }
-
-        if (mutation.stopPropagation) {
-            finalMutation.stopPropagation = true;
-            break;
+        try {
+            AgentStateMutation mutation = notifyFunc(subscriber.get(), params);
+            
+            if (mutation.messages.has_value()) {
+                finalMutation.messages = mutation.messages;
+            }
+            if (mutation.state.has_value()) {
+                finalMutation.state = mutation.state;
+            }
+            
+            if (mutation.stopPropagation) {
+                finalMutation.stopPropagation = true;
+                break;
+            }
+        } catch (const std::exception& e) {
+            Logger::errorf("notifySubscribers: subscriber error: ", e.what());
         }
     }
 
@@ -438,8 +468,19 @@ Message* EventHandler::findMessage(const MessageId& id) {
     return nullptr;
 }
 
-void EventHandler::appendEventDelta(const MessageId& messageId, const ToolCallId& toolCallId, const std::string &delta) {
-    Message* msg = findMessage(messageId);
+Message* EventHandler::findMessageContainingToolCall(const ToolCallId& toolCallId) {
+    for (auto& msg : m_messages) {
+        for (const auto& toolCall : msg.toolCalls()) {
+            if (toolCall.id == toolCallId) {
+                return &msg;
+            }
+        }
+    }
+    return nullptr;
+}
+
+void EventHandler::appendEventDelta(const ToolCallId& toolCallId, const std::string &delta) {
+    Message* msg = findMessageContainingToolCall(toolCallId);
     if (!msg) {
         return;
     }
@@ -451,9 +492,65 @@ AgentSubscriberParams EventHandler::createParams() const {
 }
 
 void EventHandler::handleToolCallResult(const ToolCallResultEvent& event) {
-    Message toolMessage = Message::createTool(event.toolCallId, event.result);
+    Message toolMessage = event.messageId.empty()
+        ? Message::create(MessageRole::Tool, event.content, "", event.toolCallId)
+        : Message::createWithId(event.messageId, MessageRole::Tool, event.content, "", event.toolCallId);
     m_messages.push_back(toolMessage);
     notifyNewMessage(toolMessage);
+    notifyMessagesChanged();
+}
+
+void EventHandler::handleActivitySnapshot(const ActivitySnapshotEvent& event) {
+    Message* existing = findMessage(event.messageId);
+
+    if (!existing) {
+        // Create a new Activity message with the snapshot content
+        Message activityMsg = Message::createWithId(event.messageId, MessageRole::Activity,
+                                                    event.content.dump());
+        activityMsg.setActivityType(event.activityType);
+        m_messages.push_back(activityMsg);
+        notifyNewMessage(m_messages.back());
+    } else if (event.replace) {
+        // Replace existing activity message content
+        existing->setContent(event.content.dump());
+        existing->setActivityType(event.activityType);
+    }
+
+    notifyMessagesChanged();
+}
+
+void EventHandler::handleActivityDelta(const ActivityDeltaEvent& event) {
+    Message* existing = findMessage(event.messageId);
+    if (!existing) {
+        return;  // silently skip, consistent with TypeScript
+    }
+
+    if (existing->role() != MessageRole::Activity) {
+        Logger::warningf("handleActivityDelta: message '", event.messageId, "' is not an activity message");
+        return;
+    }
+
+    try {
+        // Default to empty object if content is absent, consistent with TypeScript (content ?? {})
+        nlohmann::json currentContent = existing->content().empty()
+            ? nlohmann::json::object()
+            : nlohmann::json::parse(existing->content());
+
+        // Convert vector<JsonPatchOp> to JSON array for StateManager
+        nlohmann::json patchJson = nlohmann::json::array();
+        for (const auto& op : event.patch) {
+            patchJson.push_back(op.toJson());
+        }
+
+        StateManager stateManager(currentContent);
+        stateManager.applyPatch(patchJson);
+        existing->setContent(stateManager.currentState().dump());
+        existing->setActivityType(event.activityType);  // sync activityType from delta event
+    } catch (const std::exception& e) {
+        Logger::warningf("handleActivityDelta: failed to apply patch for '", event.messageId, "': ", e.what());
+        return;
+    }
+
     notifyMessagesChanged();
 }
 

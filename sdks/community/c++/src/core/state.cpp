@@ -76,6 +76,42 @@ JsonPatchOp JsonPatchOp::fromJson(const nlohmann::json& j) {
     return patchOp;
 }
 
+void JsonPatchOp::validate() const {
+    // Validate path format (must start with /)
+    if (path.empty() || path[0] != '/') {
+        throw AGUI_ERROR(validation, ErrorCode::ValidationError,
+                         "Invalid JSON Pointer path: " + path);
+    }
+
+    // move and copy operations require from field
+    if (op == PatchOperation::Move || op == PatchOperation::Copy) {
+        const std::string opStr = (op == PatchOperation::Move) ? "move" : "copy";
+        if (from.empty()) {
+            throw AGUI_ERROR(validation, ErrorCode::ValidationError,
+                             "Operation '" + opStr + "' requires 'from' field");
+        }
+        if (from[0] != '/') {
+            throw AGUI_ERROR(validation, ErrorCode::ValidationError,
+                             "Invalid JSON Pointer 'from' path: " + from);
+        }
+    }
+
+    // add, replace, test operations require a non-null value field
+    if (op == PatchOperation::Add || op == PatchOperation::Replace || op == PatchOperation::Test) {
+        if (value.is_null()) {
+            std::string opStr;
+            switch (op) {
+                case PatchOperation::Add:     opStr = "add";     break;
+                case PatchOperation::Replace: opStr = "replace"; break;
+                case PatchOperation::Test:    opStr = "test";    break;
+                default:                                         break;
+            }
+            throw AGUI_ERROR(validation, ErrorCode::ValidationError,
+                             "Operation '" + opStr + "' requires 'value' field");
+        }
+    }
+}
+
 StateManager::StateManager()
     : m_currentState(nlohmann::json::object()), m_historyEnabled(false), m_maxHistorySize(10) {}
 
@@ -96,9 +132,15 @@ void StateManager::applyPatch(const nlohmann::json& patch) {
 
     nlohmann::json backup = m_currentState;
 
-    for (const auto& opJson : patch) {
-        JsonPatchOp op = JsonPatchOp::fromJson(opJson);
-        applyPatchOp(op);
+    try {
+        for (const auto& opJson : patch) {
+            JsonPatchOp op = JsonPatchOp::fromJson(opJson);
+            applyPatchOp(op);
+        }
+    } catch (...) {
+        // restore state on any failure
+        m_currentState = backup;
+        throw;
     }
 
     if (m_historyEnabled) {
@@ -129,7 +171,7 @@ void StateManager::applyPatchOp(const JsonPatchOp& op) {
     }
 }
 
-bool StateManager::validateState(const nlohmann::json* schema) const {
+bool StateManager::validateState() const {
     if (m_currentState.is_null()) {
         return false;
     }
@@ -355,10 +397,8 @@ std::vector<std::string> StateManager::parsePath(const std::string& path) {
     std::string current;
     for (size_t i = 1; i < path.length(); ++i) {
         if (path[i] == '/') {
-            if (!current.empty()) {
-                segments.push_back(current);
-                current.clear();
-            }
+            segments.push_back(current);  // RFC 6901: always push token, even empty string
+            current.clear();
         } else if (path[i] == '~') {
             if (i + 1 < path.length()) {
                 if (path[i + 1] == '0') {
@@ -378,9 +418,7 @@ std::vector<std::string> StateManager::parsePath(const std::string& path) {
         }
     }
 
-    if (!current.empty()) {
-        segments.push_back(current);
-    }
+    segments.push_back(current);  // RFC 6901: always push final token, even empty string
 
     return segments;
 }

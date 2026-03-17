@@ -1,7 +1,6 @@
 #include "middleware/middleware.h"
 
 #include <algorithm>
-#include <chrono>
 #include "core/logger.h"
 
 namespace agui {

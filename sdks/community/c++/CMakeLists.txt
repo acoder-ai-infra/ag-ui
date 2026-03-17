@@ -13,7 +13,11 @@ endif()
 
 # Add debug symbols
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_compile_options(-g -O0)
+    if(MSVC)
+        add_compile_options(/Zi /Od)
+    else()
+        add_compile_options(-g -O0)
+    endif()
     message(STATUS "Building in Debug mode with debug symbols")
 endif()
 
@@ -21,7 +25,7 @@ endif()
 if(MSVC)
     add_compile_options(/W4)
 else()
-    add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-variable)
+    add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
 endif()
 
 # Find dependencies
@@ -157,13 +161,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ag-ui-config.cmake.in")
         ${CMAKE_CURRENT_BINARY_DIR}/ag-ui-config-version.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ag-ui
     )
-endif()
-
-# VSCode test program
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vscode_test.cpp")
-    add_executable(vscode_test vscode_test.cpp)
-    target_link_libraries(vscode_test PRIVATE ag-ui)
-    message(STATUS "  VSCode Test: Enabled")
 endif()
 
 # Print configuration

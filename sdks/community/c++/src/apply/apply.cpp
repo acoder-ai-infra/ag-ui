@@ -60,11 +60,11 @@ bool ApplyModule::validateState(const nlohmann::json& stateObj) {
 Message ApplyModule::createAssistantMessage(const MessageId& id) {
     // Use the provided ID instead of generating a new one
     // This ensures TEXT_MESSAGE_START/CONTENT/END events share the same message ID
-    return Message::createAssistantWithId(id, "");
+    return Message::createWithId(id, MessageRole::Assistant, "");
 }
 
 Message ApplyModule::createToolMessage(const ToolCallId& toolCallId, const std::string& content) {
-    return Message::createTool(toolCallId, content);
+    return Message::create(MessageRole::Tool, content, "", toolCallId);
 }
 
 }  // namespace agui

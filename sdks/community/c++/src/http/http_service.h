@@ -4,6 +4,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "core/error.h"
@@ -15,14 +16,9 @@ struct curl_slist;
 namespace agui {
 
 struct HttpResponse {
-    int statusCode;
-    std::string body;
+    int statusCode = 0;
     std::string content;
     std::map<std::string, std::string> headers;
-
-    HttpResponse() : statusCode(0) {}
-
-    HttpResponse(int code, const std::string& b) : statusCode(code), body(b) {}
 
     bool isSuccess() const { return statusCode >= 200 && statusCode < 300; }
 };

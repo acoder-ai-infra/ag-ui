@@ -94,7 +94,7 @@ public:
     AgentStateMutation onToolCallResult(const ToolCallResultEvent& event,
                                        const AgentSubscriberParams& params) override {
         onToolCallResultCallCount++;
-        lastToolCallResult = event.result;
+        lastToolCallResult = event.content;
         return AgentStateMutation();
     }
     
@@ -403,7 +403,6 @@ TEST(EventHandlerTest, ToolCallArgsBufferAccumulation) {
     
     // ARGS event 1
     auto argsEvent1 = std::make_unique<ToolCallArgsEvent>();
-    argsEvent1->messageId = "msg1";
     argsEvent1->toolCallId = "call1";
     argsEvent1->delta = "{\"query\":";
     handler.handleEvent(std::move(argsEvent1));
@@ -412,7 +411,6 @@ TEST(EventHandlerTest, ToolCallArgsBufferAccumulation) {
     
     // ARGS event 2
     auto argsEvent2 = std::make_unique<ToolCallArgsEvent>();
-    argsEvent2->messageId = "msg1";
     argsEvent2->toolCallId = "call1";
     argsEvent2->delta = "\"test\"}";
     handler.handleEvent(std::move(argsEvent2));
@@ -447,7 +445,6 @@ TEST(EventHandlerTest, MultipleToolCallArgsEvents) {
     std::string parts[] = {"{", "\"a\"", ":", "1", "}"};
     for (const auto& part : parts) {
         auto argsEvent = std::make_unique<ToolCallArgsEvent>();
-        argsEvent->messageId = "msg1";
         argsEvent->toolCallId = "call1";
         argsEvent->delta = part;
         handler.handleEvent(std::move(argsEvent));
@@ -471,7 +468,6 @@ TEST(EventHandlerTest, ToolCallArgsBufferClearedOnEnd) {
     handler.handleEvent(std::move(startEvent1));
     
     auto argsEvent1 = std::make_unique<ToolCallArgsEvent>();
-    argsEvent1->messageId = "msg1";
     argsEvent1->toolCallId = "call1";
     argsEvent1->delta = "{\"a\":1}";
     handler.handleEvent(std::move(argsEvent1));
@@ -488,7 +484,6 @@ TEST(EventHandlerTest, ToolCallArgsBufferClearedOnEnd) {
     handler.handleEvent(std::move(startEvent2));
     
     auto argsEvent2 = std::make_unique<ToolCallArgsEvent>();
-    argsEvent2->messageId = "msg1";
     argsEvent2->toolCallId = "call2";
     argsEvent2->delta = "{\"b\":2}";
     handler.handleEvent(std::move(argsEvent2));
@@ -581,7 +576,6 @@ TEST(EventHandlerTest, ToolCallResultEventTriggersCallback) {
     handler.handleEvent(std::move(startEvent));
     
     auto argsEvent = std::make_unique<ToolCallArgsEvent>();
-    argsEvent->messageId = "msg1";
     argsEvent->toolCallId = "call1";
     argsEvent->delta = "{\"query\":\"test\"}";
     handler.handleEvent(std::move(argsEvent));
@@ -593,7 +587,7 @@ TEST(EventHandlerTest, ToolCallResultEventTriggersCallback) {
     // Test: Send ToolCallResultEvent
     auto resultEvent = std::make_unique<ToolCallResultEvent>();
     resultEvent->toolCallId = "call1";
-    resultEvent->result = "{\"status\":\"success\",\"data\":\"found\"}";
+    resultEvent->content = "{\"status\":\"success\",\"data\":\"found\"}";
     handler.handleEvent(std::move(resultEvent));
     
     // Verify: onToolCallResult callback was triggered
@@ -616,7 +610,6 @@ TEST(EventHandlerTest, ToolCallResultEventWithMultipleResults) {
     handler.handleEvent(std::move(startEvent1));
     
     auto argsEvent1 = std::make_unique<ToolCallArgsEvent>();
-    argsEvent1->messageId = "msg1";
     argsEvent1->toolCallId = "call1";
     argsEvent1->delta = "{\"param\":\"value1\"}";
     handler.handleEvent(std::move(argsEvent1));
@@ -632,7 +625,6 @@ TEST(EventHandlerTest, ToolCallResultEventWithMultipleResults) {
     handler.handleEvent(std::move(startEvent2));
     
     auto argsEvent2 = std::make_unique<ToolCallArgsEvent>();
-    argsEvent2->messageId = "msg1";
     argsEvent2->toolCallId = "call2";
     argsEvent2->delta = "{\"param\":\"value2\"}";
     handler.handleEvent(std::move(argsEvent2));
@@ -644,12 +636,12 @@ TEST(EventHandlerTest, ToolCallResultEventWithMultipleResults) {
     // Test: Send ToolCallResultEvents for both tool calls
     auto resultEvent1 = std::make_unique<ToolCallResultEvent>();
     resultEvent1->toolCallId = "call1";
-    resultEvent1->result = "result1";
+    resultEvent1->content = "result1";
     handler.handleEvent(std::move(resultEvent1));
     
     auto resultEvent2 = std::make_unique<ToolCallResultEvent>();
     resultEvent2->toolCallId = "call2";
-    resultEvent2->result = "result2";
+    resultEvent2->content = "result2";
     handler.handleEvent(std::move(resultEvent2));
     
     // Verify: Both tool result messages were created
@@ -659,6 +651,54 @@ TEST(EventHandlerTest, ToolCallResultEventWithMultipleResults) {
     EXPECT_EQ(handler.messages()[2].content(), "result2");
 }
 
+TEST(EventHandlerTest, ToolCallWithoutParentMessageIdUsesToolCallIdAsFallbackMessageId) {
+    std::vector<Message> messages;
+    std::string state = "{}";
+    auto subscriber = std::make_shared<MockSubscriber>();
+
+    EventHandler handler(messages, state, {subscriber});
+
+    auto startEvent = std::make_unique<ToolCallStartEvent>();
+    startEvent->toolCallId = "call-123";
+    startEvent->toolCallName = "search";
+    handler.handleEvent(std::move(startEvent));
+
+    auto argsEvent = std::make_unique<ToolCallArgsEvent>();
+    argsEvent->toolCallId = "call-123";
+    argsEvent->delta = "{\"query\":\"test\"}";
+    handler.handleEvent(std::move(argsEvent));
+
+    ASSERT_EQ(handler.messages().size(), 1);
+    EXPECT_EQ(handler.messages()[0].id(), "call-123");
+    ASSERT_EQ(handler.messages()[0].toolCalls().size(), 1);
+    EXPECT_EQ(handler.messages()[0].toolCalls()[0].function.arguments, "{\"query\":\"test\"}");
+}
+
+TEST(EventHandlerTest, TextMessageStartReusesPlaceholderCreatedByToolCallStart) {
+    std::vector<Message> messages;
+    std::string state = "{}";
+
+    EventHandler handler(messages, state);
+
+    auto toolStart = std::make_unique<ToolCallStartEvent>();
+    toolStart->toolCallId = "call-123";
+    toolStart->toolCallName = "search";
+    toolStart->parentMessageId = "msg-1";
+    handler.handleEvent(std::move(toolStart));
+
+    ASSERT_EQ(handler.messages().size(), 1);
+    EXPECT_EQ(handler.messages()[0].id(), "msg-1");
+    EXPECT_EQ(handler.messages()[0].toolCalls().size(), 1);
+
+    auto textStart = std::make_unique<TextMessageStartEvent>();
+    textStart->messageId = "msg-1";
+    textStart->role = "assistant";
+    handler.handleEvent(std::move(textStart));
+
+    EXPECT_EQ(handler.messages().size(), 1);
+    EXPECT_EQ(handler.messages()[0].id(), "msg-1");
+}
+
 // MessagesSnapshotEvent Tests
 TEST(EventHandlerTest, MessagesSnapshotReplacesMessages) {
     std::vector<Message> messages;
@@ -666,16 +706,16 @@ TEST(EventHandlerTest, MessagesSnapshotReplacesMessages) {
     auto subscriber = std::make_shared<MockSubscriber>();
     
     // Add some initial messages
-    messages.push_back(Message::createUserWithId("msg1", "Hello"));
-    messages.push_back(Message::createAssistantWithId("msg2", "Hi there"));
+    messages.push_back(Message::createWithId("msg1", MessageRole::User, "Hello"));
+    messages.push_back(Message::createWithId("msg2", MessageRole::Assistant, "Hi there"));
     
     EventHandler handler(messages, state, {subscriber});
     EXPECT_EQ(handler.messages().size(), 2);
     
     // Create new messages for snapshot
     std::vector<Message> newMessages;
-    newMessages.push_back(Message::createUserWithId("new1", "New message"));
-    newMessages.push_back(Message::createAssistantWithId("msg2", "Second"));
+    newMessages.push_back(Message::createWithId("new1", MessageRole::User, "New message"));
+    newMessages.push_back(Message::createWithId("msg2", MessageRole::Assistant, "Second"));
     
     // Test: Send MessagesSnapshotEvent
     auto snapshotEvent = std::make_unique<MessagesSnapshotEvent>();

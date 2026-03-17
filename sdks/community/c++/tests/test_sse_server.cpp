@@ -139,7 +139,7 @@ TEST_F(IntegrationTest, HttpClient_HealthCheckEndpoint) {
     ASSERT_FALSE(errorOccurred) << "Health check error: " << errorMsg;
     EXPECT_TRUE(receivedResponse.isSuccess()) << "Health check should return success status";
     EXPECT_EQ(200, receivedResponse.statusCode) << "Status code should be 200";
-    std::cout << "Response content: " << receivedResponse.body << std::endl;
+    std::cout << "Response content: " << receivedResponse.content << std::endl;
 }
 
 TEST_F(IntegrationTest, HttpClient_GetScenariosList) {
@@ -175,7 +175,7 @@ TEST_F(IntegrationTest, HttpClient_GetScenariosList) {
 
     ASSERT_FALSE(errorOccurred) << "Scenarios list error: " << errorMsg;
     EXPECT_TRUE(receivedResponse.isSuccess()) << "Scenarios list should return success";
-    std::cout << "Scenarios list: " << receivedResponse.body << std::endl;
+    std::cout << "Scenarios list: " << receivedResponse.content << std::endl;
 }
 
 // ── Test Suite 2: HttpAgent Integration Tests ─────────────────────────────────

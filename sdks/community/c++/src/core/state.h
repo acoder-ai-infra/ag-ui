@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
@@ -20,6 +21,12 @@ struct JsonPatchOp {
 
     nlohmann::json toJson() const;
     static JsonPatchOp fromJson(const nlohmann::json& j);
+
+    /**
+     * @brief Validate this patch operation (path format and required fields).
+     * @throws AgentError if the operation is invalid.
+     */
+    void validate() const;
 };
 
 class StateManager {
@@ -31,7 +38,7 @@ public:
     void setState(const nlohmann::json& state);
     void applyPatch(const nlohmann::json& patch);
     void applyPatchOp(const JsonPatchOp& op);
-    bool validateState(const nlohmann::json* schema = nullptr) const;
+    bool validateState() const;
     nlohmann::json createSnapshot() const;
     void restoreFromSnapshot(const nlohmann::json& snapshot);
     void clear();

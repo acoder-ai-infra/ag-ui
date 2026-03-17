@@ -45,17 +45,17 @@ public:
 class EventFilterMiddleware : public IMiddleware {
 public:
     explicit EventFilterMiddleware(EventType filterType)
-        : _filterType(filterType) {}
+        : m_filterType(filterType) {}
     
     bool shouldProcessEvent(const Event& event, MiddlewareContext& context) override {
-        if (event.type() == _filterType) {
+        if (event.type() == m_filterType) {
             return false;
         }
         return true;
     }
     
 private:
-    EventType _filterType;
+    EventType m_filterType;
 };
 
 /**
@@ -95,10 +95,10 @@ public:
 class ExecutionControlMiddleware : public IMiddleware {
 public:
     explicit ExecutionControlMiddleware(bool shouldStop)
-        : _shouldStop(shouldStop) {}
+        : m_shouldStop(shouldStop) {}
     
     bool shouldContinue(const RunAgentInput& input, MiddlewareContext& context) override {
-        if (_shouldStop) {
+        if (m_shouldStop) {
             context.shouldContinue = false;
             return false;
         }
@@ -106,7 +106,7 @@ public:
     }
     
 private:
-    bool _shouldStop;
+    bool m_shouldStop;
 };
 
 // Test cases

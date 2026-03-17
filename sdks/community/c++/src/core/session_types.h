@@ -23,7 +23,7 @@ class ToolCall;
 /**
  * @brief Message role enumeration
  */
-enum class MessageRole { User, Assistant, System, Tool };
+enum class MessageRole { User, Assistant, System, Tool, Developer, Activity, Reasoning };
 
 /**
  * @brief Function call information
@@ -56,32 +56,38 @@ public:
  */
 class Message {
 public:
-    Message();
+    Message() {}
     Message(const MessageId &mid, const MessageRole &role, const std::string &content);
-    ~Message();
+    ~Message() = default;
 
-    static Message createUser(const std::string& content, const std::string& name = "");
-    static Message createAssistant(const std::string& content, const std::string& name = "");
-    static Message createSystem(const std::string& content);
-    static Message createTool(const std::string& toolCallId, const std::string& content);
+    // Role conversion helpers
+    static MessageRole roleFromString(const std::string& roleStr);
+    static std::string roleToString(MessageRole role);
 
-    // Overloaded versions that accept custom message ID
-    static Message createUserWithId(const MessageId& id, const std::string& content, const std::string& name = "");
-    static Message createAssistantWithId(const MessageId& id, const std::string& content, const std::string& name = "");
-    static Message createSystemWithId(const MessageId& id, const std::string& content);
-    static Message createToolWithId(const MessageId& id, const std::string& toolCallId, const std::string& content);
+    // Unified factory — auto-generates ID
+    static Message create(MessageRole role, const std::string& content = "",
+                          const std::string& name = "",
+                          const std::string& toolCallId = "");
 
-    const MessageId& id() const { return _id; }
-    MessageRole role() const { return _role; }
-    const std::string& content() const { return _content; }
-    const std::string& name() const { return _name; }
-    const std::vector<ToolCall>& toolCalls() const { return _toolCalls; }
-    const std::string& toolCallId() const { return _toolCallId; }
+    // Unified factory — uses provided ID
+    static Message createWithId(const MessageId& id, MessageRole role,
+                                const std::string& content = "",
+                                const std::string& name = "",
+                                const std::string& toolCallId = "");
 
-    void setRole(const MessageRole &role) {_role = role;}
-    void setContent(const std::string& content) { _content = content; }
-    void appendContent(const std::string& delta) { _content += delta; }
-    void addToolCall(const ToolCall& toolCall) { _toolCalls.push_back(toolCall); }
+    const MessageId& id() const { return m_id; }
+    MessageRole role() const { return m_role; }
+    const std::string& content() const { return m_content; }
+    const std::string& name() const { return m_name; }
+    const std::vector<ToolCall>& toolCalls() const { return m_toolCalls; }
+    const std::string& toolCallId() const { return m_toolCallId; }
+    const std::string& activityType() const { return m_activityType; }
+
+    void setRole(const MessageRole &role) {m_role = role;}
+    void setContent(const std::string& content) { m_content = content; }
+    void appendContent(const std::string& delta) { m_content += delta; }
+    void addToolCall(const ToolCall& toolCall) { m_toolCalls.push_back(toolCall); }
+    void setActivityType(const std::string& type) { m_activityType = type; }
     void assignEventDelta(const ToolCallId& toolCallId, const std::string &value);
     void appendEventDelta(const ToolCallId& toolCallId, const std::string &delta);
 
@@ -89,12 +95,13 @@ public:
     static Message fromJson(const nlohmann::json& j);
 
 private:
-    MessageId _id;
-    MessageRole _role;
-    std::string _content;
-    std::string _name;
-    std::vector<ToolCall> _toolCalls;
-    std::string _toolCallId;
+    MessageId m_id;
+    MessageRole m_role = MessageRole::User;
+    std::string m_content;
+    std::string m_name;
+    std::vector<ToolCall> m_toolCalls;
+    std::string m_toolCallId;
+    std::string m_activityType;  // non-empty for MessageRole::Activity messages
 };
 
 /**
@@ -115,8 +122,8 @@ public:
  */
 class Context {
 public:
-    std::string type;
-    std::string data;
+    std::string description;
+    std::string value;
 
     nlohmann::json toJson() const;
     static Context fromJson(const nlohmann::json& j);
@@ -144,7 +151,6 @@ public:
  */
 class RunAgentResult {
 public:
-    ThreadId threadId;
     std::string result;
     std::vector<Message> newMessages;
     std::string newState;

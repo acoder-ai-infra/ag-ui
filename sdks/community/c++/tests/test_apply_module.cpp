@@ -16,9 +16,9 @@ using namespace agui;
 // Message Finding Tests
 TEST(ApplyModuleTest, FindMessageById) {
     std::vector<Message> messages;
-    messages.push_back(Message::createUser("Hello"));
-    messages.push_back(Message::createAssistant("Hi there"));
-    messages.push_back(Message::createUser("How are you?"));
+    messages.push_back(Message::create(MessageRole::User,"Hello"));
+    messages.push_back(Message::create(MessageRole::Assistant,"Hi there"));
+    messages.push_back(Message::create(MessageRole::User,"How are you?"));
     
     // Get the ID of the second message
     MessageId targetId = messages[1].id();
@@ -30,7 +30,7 @@ TEST(ApplyModuleTest, FindMessageById) {
 
 TEST(ApplyModuleTest, FindMessageByIdNotFound) {
     std::vector<Message> messages;
-    messages.push_back(Message::createUser("Hello"));
+    messages.push_back(Message::create(MessageRole::User,"Hello"));
     
     MessageId nonExistentId = "nonexistent-id";
     
@@ -40,7 +40,7 @@ TEST(ApplyModuleTest, FindMessageByIdNotFound) {
 
 TEST(ApplyModuleTest, FindMessageByIdConst) {
     std::vector<Message> messages;
-    messages.push_back(Message::createUser("Test"));
+    messages.push_back(Message::create(MessageRole::User,"Test"));
     
     const std::vector<Message>& constMessages = messages;
     MessageId targetId = messages[0].id();
@@ -52,10 +52,10 @@ TEST(ApplyModuleTest, FindMessageByIdConst) {
 
 TEST(ApplyModuleTest, FindLastAssistantMessage) {
     std::vector<Message> messages;
-    messages.push_back(Message::createUser("Hello"));
-    messages.push_back(Message::createAssistant("First response"));
-    messages.push_back(Message::createUser("Another question"));
-    messages.push_back(Message::createAssistant("Second response"));
+    messages.push_back(Message::create(MessageRole::User,"Hello"));
+    messages.push_back(Message::create(MessageRole::Assistant,"First response"));
+    messages.push_back(Message::create(MessageRole::User,"Another question"));
+    messages.push_back(Message::create(MessageRole::Assistant,"Second response"));
     
     Message* found = ApplyModule::findLastAssistantMessage(messages);
     EXPECT_NE(found, nullptr);
@@ -64,8 +64,8 @@ TEST(ApplyModuleTest, FindLastAssistantMessage) {
 
 TEST(ApplyModuleTest, FindLastAssistantMessageNoAssistant) {
     std::vector<Message> messages;
-    messages.push_back(Message::createUser("Hello"));
-    messages.push_back(Message::createUser("Another message"));
+    messages.push_back(Message::create(MessageRole::User,"Hello"));
+    messages.push_back(Message::create(MessageRole::User,"Another message"));
     
     Message* found = ApplyModule::findLastAssistantMessage(messages);
     EXPECT_EQ(found, nullptr);
@@ -73,7 +73,7 @@ TEST(ApplyModuleTest, FindLastAssistantMessageNoAssistant) {
 
 // Tool Call Finding Tests
 TEST(ApplyModuleTest, FindToolCallById) {
-    Message message = Message::createAssistant("");
+    Message message = Message::create(MessageRole::Assistant,"");
     
     ToolCall toolCall1;
     toolCall1.id = "call1";
@@ -94,7 +94,7 @@ TEST(ApplyModuleTest, FindToolCallById) {
 }
 
 TEST(ApplyModuleTest, FindToolCallByIdNotFound) {
-    Message message = Message::createAssistant("");
+    Message message = Message::create(MessageRole::Assistant,"");
     
     ToolCall toolCall;
     toolCall.id = "call1";
@@ -198,8 +198,8 @@ TEST(ApplyModuleTest, CreateToolMessage) {
 // Integration Tests
 TEST(ApplyModuleTest, FindAndModifyMessage) {
     std::vector<Message> messages;
-    messages.push_back(Message::createUser("Hello"));
-    messages.push_back(Message::createAssistant("Hi"));
+    messages.push_back(Message::create(MessageRole::User,"Hello"));
+    messages.push_back(Message::create(MessageRole::Assistant,"Hi"));
     
     MessageId targetId = messages[1].id();
     Message* found = ApplyModule::findMessageById(messages, targetId);
@@ -213,7 +213,7 @@ TEST(ApplyModuleTest, FindAndModifyMessage) {
 }
 
 TEST(ApplyModuleTest, FindAndModifyToolCall) {
-    Message message = Message::createAssistant("");
+    Message message = Message::create(MessageRole::Assistant,"");
     
     ToolCall toolCall;
     toolCall.id = "call1";
@@ -231,7 +231,7 @@ TEST(ApplyModuleTest, MultipleMessageOperations) {
     std::vector<Message> messages;
     
     // Add user message
-    messages.push_back(Message::createUser("Question"));
+    messages.push_back(Message::create(MessageRole::User,"Question"));
     
     // Add assistant message with custom ID
     MessageId assistantId = "assistant-1";

@@ -1,21 +1,18 @@
 #include "event.h"
 
-#include <set>
 #include "core/error.h"
 
 namespace agui {
 
 // BaseEventData Implementation
 
-BaseEventData::BaseEventData() : timestamp(std::chrono::system_clock::now()) {}
-
 nlohmann::json BaseEventData::toJson() const {
     nlohmann::json j;
 
-    j["timestamp"] = std::chrono::duration_cast<std::chrono::milliseconds>(
-                         timestamp.time_since_epoch()).count();
+    if (timestamp.has_value()) {
+        j["timestamp"] = timestamp.value();
+    }
 
-    // Add raw event data if present
     if (rawEvent.has_value()) {
         j["rawEvent"] = rawEvent.value();
     }
@@ -27,11 +24,9 @@ BaseEventData BaseEventData::fromJson(const nlohmann::json& j) {
     BaseEventData data;
 
     if (j.contains("timestamp") && j["timestamp"].is_number()) {
-        data.timestamp = std::chrono::system_clock::time_point(
-            std::chrono::milliseconds(j["timestamp"].get<int64_t>()));
+        data.timestamp = j["timestamp"].get<int64_t>();
     }
 
-    // Parse raw event data if present
     if (j.contains("rawEvent")) {
         data.rawEvent = j["rawEvent"];
     }
@@ -45,10 +40,14 @@ void Event::setRawEvent(const nlohmann::json& raw) {
     m_baseData.rawEvent = raw;
 }
 
+nlohmann::json Event::baseFieldsToJson() const {
+    return m_baseData.toJson();
+}
+
 // TextMessageStartEvent Implementation
 
 nlohmann::json TextMessageStartEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "TEXT_MESSAGE_START";
     j["messageId"] = messageId;
     j["role"] = role;
@@ -57,6 +56,7 @@ nlohmann::json TextMessageStartEvent::toJson() const {
 
 TextMessageStartEvent TextMessageStartEvent::fromJson(const nlohmann::json& j) {
     TextMessageStartEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     e.messageId = j.value("messageId", "");
     e.role = j.value("role", "");
     return e;
@@ -65,7 +65,7 @@ TextMessageStartEvent TextMessageStartEvent::fromJson(const nlohmann::json& j) {
 // TextMessageContentEvent Implementation
 
 nlohmann::json TextMessageContentEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "TEXT_MESSAGE_CONTENT";
     j["messageId"] = messageId;
     j["delta"] = delta;
@@ -74,6 +74,7 @@ nlohmann::json TextMessageContentEvent::toJson() const {
 
 TextMessageContentEvent TextMessageContentEvent::fromJson(const nlohmann::json& j) {
     TextMessageContentEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     e.messageId = j.value("messageId", "");
     e.delta = j.value("delta", "");
     return e;
@@ -82,7 +83,7 @@ TextMessageContentEvent TextMessageContentEvent::fromJson(const nlohmann::json& 
 // TextMessageEndEvent Implementation
 
 nlohmann::json TextMessageEndEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "TEXT_MESSAGE_END";
     j["messageId"] = messageId;
     return j;
@@ -90,6 +91,7 @@ nlohmann::json TextMessageEndEvent::toJson() const {
 
 TextMessageEndEvent TextMessageEndEvent::fromJson(const nlohmann::json& j) {
     TextMessageEndEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     e.messageId = j.value("messageId", "");
     return e;
 }
@@ -97,38 +99,51 @@ TextMessageEndEvent TextMessageEndEvent::fromJson(const nlohmann::json& j) {
 // TextMessageChunkEvent Implementation
 
 nlohmann::json TextMessageChunkEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "TEXT_MESSAGE_CHUNK";
     j["messageId"] = messageId;
-    j["content"] = content;
+    j["delta"] = delta;
+    if (role.has_value()) {
+        j["role"] = role.value();
+    }
+    if (name.has_value()) {
+        j["name"] = name.value();
+    }
     return j;
 }
 
 TextMessageChunkEvent TextMessageChunkEvent::fromJson(const nlohmann::json& j) {
     TextMessageChunkEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     e.messageId = j.value("messageId", "");
-    e.content = j.value("content", "");
+    e.delta = j.value("delta", "");
+    if (j.contains("role") && j["role"].is_string()) {
+        e.role = j["role"].get<std::string>();
+    }
+    if (j.contains("name") && j["name"].is_string()) {
+        e.name = j["name"].get<std::string>();
+    }
     return e;
 }
 
 // ThinkingTextMessageStartEvent Implementation
 
 nlohmann::json ThinkingTextMessageStartEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "THINKING_TEXT_MESSAGE_START";
     return j;
 }
 
 ThinkingTextMessageStartEvent ThinkingTextMessageStartEvent::fromJson(const nlohmann::json& j) {
     ThinkingTextMessageStartEvent e;
-    (void)j;
+    e.m_baseData = BaseEventData::fromJson(j);
     return e;
 }
 
 // ThinkingTextMessageContentEvent Implementation
 
 nlohmann::json ThinkingTextMessageContentEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "THINKING_TEXT_MESSAGE_CONTENT";
     j["delta"] = delta;
     return j;
@@ -136,6 +151,7 @@ nlohmann::json ThinkingTextMessageContentEvent::toJson() const {
 
 ThinkingTextMessageContentEvent ThinkingTextMessageContentEvent::fromJson(const nlohmann::json& j) {
     ThinkingTextMessageContentEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     e.delta = j.value("delta", "");
     return e;
 }
@@ -143,51 +159,55 @@ ThinkingTextMessageContentEvent ThinkingTextMessageContentEvent::fromJson(const 
 // ThinkingTextMessageEndEvent Implementation
 
 nlohmann::json ThinkingTextMessageEndEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "THINKING_TEXT_MESSAGE_END";
     return j;
 }
 
 ThinkingTextMessageEndEvent ThinkingTextMessageEndEvent::fromJson(const nlohmann::json& j) {
     ThinkingTextMessageEndEvent e;
-    (void)j;
+    e.m_baseData = BaseEventData::fromJson(j);
     return e;
 }
 
 // ToolCallStartEvent Implementation
 
 nlohmann::json ToolCallStartEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "TOOL_CALL_START";
     j["toolCallId"] = toolCallId;
     j["toolCallName"] = toolCallName;
-    j["parentMessageId"] = parentMessageId;
+    if (parentMessageId.has_value()) {
+        j["parentMessageId"] = parentMessageId.value();
+    }
     return j;
 }
 
 ToolCallStartEvent ToolCallStartEvent::fromJson(const nlohmann::json& j) {
     ToolCallStartEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     e.toolCallId = j.value("toolCallId", "");
     e.toolCallName = j.value("toolCallName", "");
-    e.parentMessageId = j.value("parentMessageId", "");
+    if (j.contains("parentMessageId") && j["parentMessageId"].is_string()) {
+        e.parentMessageId = j["parentMessageId"].get<std::string>();
+    }
     return e;
 }
 
 // ToolCallArgsEvent Implementation
 
 nlohmann::json ToolCallArgsEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "TOOL_CALL_ARGS";
     j["toolCallId"] = toolCallId;
-    j["messageId"] = messageId;
     j["delta"] = delta;
     return j;
 }
 
 ToolCallArgsEvent ToolCallArgsEvent::fromJson(const nlohmann::json& j) {
     ToolCallArgsEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     e.toolCallId = j.value("toolCallId", "");
-    e.messageId = j.value("messageId", "");
     e.delta = j.value("delta", "");
     return e;
 }
@@ -195,7 +215,7 @@ ToolCallArgsEvent ToolCallArgsEvent::fromJson(const nlohmann::json& j) {
 // ToolCallEndEvent Implementation
 
 nlohmann::json ToolCallEndEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "TOOL_CALL_END";
     j["toolCallId"] = toolCallId;
     return j;
@@ -203,6 +223,7 @@ nlohmann::json ToolCallEndEvent::toJson() const {
 
 ToolCallEndEvent ToolCallEndEvent::fromJson(const nlohmann::json& j) {
     ToolCallEndEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     e.toolCallId = j.value("toolCallId", "");
     return e;
 }
@@ -210,69 +231,91 @@ ToolCallEndEvent ToolCallEndEvent::fromJson(const nlohmann::json& j) {
 // ToolCallChunkEvent Implementation
 
 nlohmann::json ToolCallChunkEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "TOOL_CALL_CHUNK";
     j["toolCallId"] = toolCallId;
-    j["toolCallName"] = toolCallName;
-    j["arguments"] = arguments;
+    if (toolCallName.has_value()) {
+        j["toolCallName"] = toolCallName.value();
+    }
+    j["delta"] = delta;
+    if (parentMessageId.has_value()) {
+        j["parentMessageId"] = parentMessageId.value();
+    }
     return j;
 }
 
 ToolCallChunkEvent ToolCallChunkEvent::fromJson(const nlohmann::json& j) {
     ToolCallChunkEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     e.toolCallId = j.value("toolCallId", "");
-    e.toolCallName = j.value("toolCallName", "");
-    e.arguments = j.value("arguments", "");
+    if (j.contains("toolCallName") && j["toolCallName"].is_string()) {
+        e.toolCallName = j["toolCallName"].get<std::string>();
+    }
+    e.delta = j.value("delta", "");
+    if (j.contains("parentMessageId") && j["parentMessageId"].is_string()) {
+        e.parentMessageId = j["parentMessageId"].get<std::string>();
+    }
     return e;
 }
 
 // ToolCallResultEvent Implementation
 
 nlohmann::json ToolCallResultEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "TOOL_CALL_RESULT";
+    j["messageId"] = messageId;
     j["toolCallId"] = toolCallId;
-    j["result"] = result;
+    j["content"] = content;
+    if (role.has_value()) {
+        j["role"] = role.value();
+    }
     return j;
 }
 
 ToolCallResultEvent ToolCallResultEvent::fromJson(const nlohmann::json& j) {
     ToolCallResultEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
+    e.messageId = j.value("messageId", "");
     e.toolCallId = j.value("toolCallId", "");
-    e.result = j.value("result", "");
+    e.content = j.value("content", "");
+    if (j.contains("role") && j["role"].is_string()) {
+        e.role = j["role"].get<std::string>();
+    }
     return e;
 }
 
 // ThinkingStartEvent Implementation
 
 nlohmann::json ThinkingStartEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "THINKING_START";
     return j;
 }
 
 ThinkingStartEvent ThinkingStartEvent::fromJson(const nlohmann::json& j) {
     ThinkingStartEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     return e;
 }
 
 // ThinkingEndEvent Implementation
 
 nlohmann::json ThinkingEndEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "THINKING_END";
     return j;
 }
 
 ThinkingEndEvent ThinkingEndEvent::fromJson(const nlohmann::json& j) {
     ThinkingEndEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     return e;
 }
 
 // StateSnapshotEvent Implementation
 
 nlohmann::json StateSnapshotEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "STATE_SNAPSHOT";
     j["snapshot"] = snapshot;
     return j;
@@ -280,6 +323,7 @@ nlohmann::json StateSnapshotEvent::toJson() const {
 
 StateSnapshotEvent StateSnapshotEvent::fromJson(const nlohmann::json& j) {
     StateSnapshotEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     e.snapshot = j.value("snapshot", nlohmann::json::object());
     return e;
 }
@@ -287,7 +331,7 @@ StateSnapshotEvent StateSnapshotEvent::fromJson(const nlohmann::json& j) {
 // StateDeltaEvent Implementation
 
 nlohmann::json StateDeltaEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "STATE_DELTA";
     j["delta"] = delta;
     return j;
@@ -295,6 +339,7 @@ nlohmann::json StateDeltaEvent::toJson() const {
 
 StateDeltaEvent StateDeltaEvent::fromJson(const nlohmann::json& j) {
     StateDeltaEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     e.delta = j.value("delta", nlohmann::json::array());
     return e;
 }
@@ -302,7 +347,7 @@ StateDeltaEvent StateDeltaEvent::fromJson(const nlohmann::json& j) {
 // MessagesSnapshotEvent Implementation
 
 nlohmann::json MessagesSnapshotEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "MESSAGES_SNAPSHOT";
     nlohmann::json messagesJson = nlohmann::json::array();
     for (const auto& msg : messages) {
@@ -314,6 +359,7 @@ nlohmann::json MessagesSnapshotEvent::toJson() const {
 
 MessagesSnapshotEvent MessagesSnapshotEvent::fromJson(const nlohmann::json& j) {
     MessagesSnapshotEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
     if (j.contains("messages") && j["messages"].is_array()) {
         for (const auto& msgJson : j["messages"]) {
             e.messages.push_back(Message::fromJson(msgJson));
@@ -322,81 +368,10 @@ MessagesSnapshotEvent MessagesSnapshotEvent::fromJson(const nlohmann::json& j) {
     return e;
 }
 
-// JsonPatchOperation Implementation
-
-nlohmann::json JsonPatchOperation::toJson() const {
-    nlohmann::json j;
-    j["op"] = op;
-    j["path"] = path;
-    
-    if (!value.is_null()) {
-        j["value"] = value;
-    }
-    
-    if (!from.empty()) {
-        j["from"] = from;
-    }
-    
-    return j;
-}
-
-JsonPatchOperation JsonPatchOperation::fromJson(const nlohmann::json& j) {
-    JsonPatchOperation operation;
-    operation.op = j.at("op").get<std::string>();
-    operation.path = j.at("path").get<std::string>();
-    
-    if (j.contains("value")) {
-        operation.value = j["value"];
-    }
-    
-    if (j.contains("from")) {
-        operation.from = j["from"].get<std::string>();
-    }
-    
-    return operation;
-}
-
-void JsonPatchOperation::validate() const {
-    // Validate operation type
-    static const std::set<std::string> validOps = {
-        "add", "remove", "replace", "move", "copy", "test"
-    };
-    
-    if (validOps.find(op) == validOps.end()) {
-        throw AGUI_ERROR(validation, ErrorCode::ValidationError,
-                        "Invalid JSON Patch operation: " + op);
-    }
-    
-    // Validate path format (must start with /)
-    if (path.empty() || path[0] != '/') {
-        throw AGUI_ERROR(validation, ErrorCode::ValidationError,
-                        "Invalid JSON Pointer path: " + path);
-    }
-    
-    // move and copy operations require from field
-    if ((op == "move" || op == "copy")) {
-        if (from.empty()) {
-            throw AGUI_ERROR(validation, ErrorCode::ValidationError,
-                            "Operation '" + op + "' requires 'from' field");
-        }
-        // Validate from field format (must also start with /)
-        if (from[0] != '/') {
-            throw AGUI_ERROR(validation, ErrorCode::ValidationError,
-                            "Invalid JSON Pointer 'from' path: " + from);
-        }
-    }
-    
-    // add, replace, test operations require value field
-    if ((op == "add" || op == "replace" || op == "test") && value.is_null()) {
-        throw AGUI_ERROR(validation, ErrorCode::ValidationError,
-                        "Operation '" + op + "' requires 'value' field");
-    }
-}
-
 // ActivitySnapshotEvent Implementation
 
 nlohmann::json ActivitySnapshotEvent::toJson() const {
-    nlohmann::json j = m_baseData.toJson();
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "ACTIVITY_SNAPSHOT";
     j["messageId"] = messageId;
     j["activityType"] = activityType;
@@ -423,21 +398,21 @@ void ActivitySnapshotEvent::validate() const {
 ActivitySnapshotEvent ActivitySnapshotEvent::fromJson(const nlohmann::json& j) {
     ActivitySnapshotEvent event;
     event.m_baseData = BaseEventData::fromJson(j);
-    event.messageId = j.at("messageId").get<std::string>();
-    event.activityType = j.at("activityType").get<std::string>();
-    event.content = j.at("content");
-    
+    event.messageId = j.value("messageId", "");
+    event.activityType = j.value("activityType", "");
+    event.content = j.value("content", nlohmann::json());
+
     if (j.contains("replace")) {
-        event.replace = j["replace"].get<bool>();
+        event.replace = j.value("replace", false);
     }
-    
+
     return event;
 }
 
 // ActivityDeltaEvent Implementation
 
 nlohmann::json ActivityDeltaEvent::toJson() const {
-    nlohmann::json j = m_baseData.toJson();
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "ACTIVITY_DELTA";
     j["messageId"] = messageId;
     j["activityType"] = activityType;
@@ -462,9 +437,9 @@ void ActivityDeltaEvent::validate() const {
     }
     if (patch.empty()) {
         throw AGUI_ERROR(validation, ErrorCode::ValidationError,
-                        "ActivityDeltaEvent: patch must contain at least one operation");
+                        "ActivityDeltaEvent: patch must not be empty");
     }
-    
+
     // Validate each patch operation
     for (size_t i = 0; i < patch.size(); ++i) {
         try {
@@ -480,28 +455,34 @@ void ActivityDeltaEvent::validate() const {
 ActivityDeltaEvent ActivityDeltaEvent::fromJson(const nlohmann::json& j) {
     ActivityDeltaEvent event;
     event.m_baseData = BaseEventData::fromJson(j);
-    event.messageId = j.at("messageId").get<std::string>();
-    event.activityType = j.at("activityType").get<std::string>();
-    
-    const auto& patchArray = j.at("patch");
-    for (const auto& patchJson : patchArray) {
-        event.patch.push_back(JsonPatchOperation::fromJson(patchJson));
+    event.messageId = j.value("messageId", "");
+    event.activityType = j.value("activityType", "");
+
+    // Safely get patch array, default to empty array if missing
+    const auto& patchArray = j.value("patch", nlohmann::json::array());
+    if (patchArray.is_array()) {
+        for (const auto& patchJson : patchArray) {
+            event.patch.push_back(JsonPatchOp::fromJson(patchJson));
+        }
     }
-    
+
     return event;
 }
 
 // RunStartedEvent Implementation
 
 nlohmann::json RunStartedEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "RUN_STARTED";
+    j["threadId"] = threadId;
     j["runId"] = runId;
     return j;
 }
 
 RunStartedEvent RunStartedEvent::fromJson(const nlohmann::json& j) {
     RunStartedEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
+    e.threadId = j.value("threadId", "");
     e.runId = j.value("runId", "");
     return e;
 }
@@ -509,15 +490,20 @@ RunStartedEvent RunStartedEvent::fromJson(const nlohmann::json& j) {
 // RunFinishedEvent Implementation
 
 nlohmann::json RunFinishedEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "RUN_FINISHED";
+    j["threadId"] = threadId;
     j["runId"] = runId;
-    j["result"] = result;
+    if (!result.is_null()) {
+        j["result"] = result;
+    }
     return j;
 }
 
 RunFinishedEvent RunFinishedEvent::fromJson(const nlohmann::json& j) {
     RunFinishedEvent e;
+    e.m_baseData = BaseEventData::fromJson(j);
+    e.threadId = j.value("threadId", "");
     e.runId = j.value("runId", "");
     e.result = j.value("result", nlohmann::json());
     return e;
@@ -526,77 +512,96 @@ RunFinishedEvent RunFinishedEvent::fromJson(const nlohmann::json& j) {
 // RunErrorEvent Implementation
 
 nlohmann::json RunErrorEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "RUN_ERROR";
-    j["error"] = error;
+    j["message"] = message;
+    if (code.has_value()) {
+        j["code"] = code.value();
+    }
     return j;
 }
 
 RunErrorEvent RunErrorEvent::fromJson(const nlohmann::json& j) {
     RunErrorEvent e;
-    e.error = j.value("error", "");
+    e.m_baseData = BaseEventData::fromJson(j);
+    e.message = j.value("message", "");
+    if (j.contains("code") && j["code"].is_string()) {
+        e.code = j["code"].get<std::string>();
+    }
     return e;
 }
 
 // StepStartedEvent Implementation
 
 nlohmann::json StepStartedEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "STEP_STARTED";
-    j["stepId"] = stepId;
+    j["stepName"] = stepName;
     return j;
 }
 
 StepStartedEvent StepStartedEvent::fromJson(const nlohmann::json& j) {
     StepStartedEvent e;
-    e.stepId = j.value("stepId", "");
+    e.m_baseData = BaseEventData::fromJson(j);
+    e.stepName = j.value("stepName", "");
     return e;
 }
 
 // StepFinishedEvent Implementation
 
 nlohmann::json StepFinishedEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "STEP_FINISHED";
-    j["stepId"] = stepId;
+    j["stepName"] = stepName;
     return j;
 }
 
 StepFinishedEvent StepFinishedEvent::fromJson(const nlohmann::json& j) {
     StepFinishedEvent e;
-    e.stepId = j.value("stepId", "");
+    e.m_baseData = BaseEventData::fromJson(j);
+    e.stepName = j.value("stepName", "");
     return e;
 }
 
 // RawEvent Implementation
 
 nlohmann::json RawEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "RAW";
-    j["data"] = data;
+    j["event"] = event;
+    if (source.has_value()) {
+        j["source"] = source.value();
+    }
     return j;
 }
 
 RawEvent RawEvent::fromJson(const nlohmann::json& j) {
     RawEvent e;
-    e.data = j.value("data", "");
+    e.m_baseData = BaseEventData::fromJson(j);
+    if (j.contains("event")) {
+        e.event = j["event"];
+    }
+    if (j.contains("source") && j["source"].is_string()) {
+        e.source = j["source"].get<std::string>();
+    }
     return e;
 }
 
 // CustomEvent Implementation
 
 nlohmann::json CustomEvent::toJson() const {
-    nlohmann::json j;
+    nlohmann::json j = baseFieldsToJson();
     j["type"] = "CUSTOM";
-    j["eventType"] = eventType;
-    j["data"] = data;
+    j["name"] = name;
+    j["value"] = value;
     return j;
 }
 
 CustomEvent CustomEvent::fromJson(const nlohmann::json& j) {
     CustomEvent e;
-    e.eventType = j.value("eventType", "");
-    e.data = j.value("data", nlohmann::json::object());
+    e.m_baseData = BaseEventData::fromJson(j);
+    e.name = j.value("name", "");
+    e.value = j.value("value", nlohmann::json());
     return e;
 }
 
@@ -759,7 +764,7 @@ std::unique_ptr<Event> EventParser::parse(const nlohmann::json& j) {
 
         default:
             auto rawEvent = std::unique_ptr<RawEvent>(new RawEvent());
-            rawEvent->data = j.dump();
+            rawEvent->event = j;
             return std::move(rawEvent);
     }
 }

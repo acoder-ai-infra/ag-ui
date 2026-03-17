@@ -155,6 +155,16 @@ public:
         return AgentStateMutation();
     }
 
+    virtual AgentStateMutation onActivitySnapshot(const ActivitySnapshotEvent& event,
+                                                   const AgentSubscriberParams& params) {
+        return AgentStateMutation();
+    }
+
+    virtual AgentStateMutation onActivityDelta(const ActivityDeltaEvent& event,
+                                               const AgentSubscriberParams& params) {
+        return AgentStateMutation();
+    }
+
     virtual AgentStateMutation onRawEvent(const RawEvent& event, const AgentSubscriberParams& params) {
         return AgentStateMutation();
     }
@@ -200,16 +210,18 @@ public:
     const std::string& state() const { return m_state; }
     const std::string& result() const { return m_result; }
 
-    void setResult(const nlohmann::json& result) { m_result = result; }
+    void setResult(const nlohmann::json& result) { m_result = result.dump(); }
+    void clearResult() { m_result.clear(); }
 
 private:
     std::vector<Message> m_messages;
-    std::string m_state;
+    std::string m_state = "{}"; // default set to empty json object
     std::vector<std::shared_ptr<IAgentSubscriber>> m_subscribers;
     std::string m_result;
 
     std::map<MessageId, std::string> m_textBuffers;
     std::map<ToolCallId, std::string> m_toolCallArgsBuffers;
+    std::string m_thinkingBuffer;
 
     void handleTextMessageStart(const TextMessageStartEvent& event);
     void handleTextMessageContent(const TextMessageContentEvent& event);
@@ -222,7 +234,7 @@ private:
     void handleToolCallStart(const ToolCallStartEvent& event);
     void handleToolCallArgs(const ToolCallArgsEvent& event);
     void handleToolCallEnd(const ToolCallEndEvent& event);
-    void handleToolCallResult(const ToolCallResultEvent& event);  // NEW: Add TOOL_CALL_RESULT handler
+    void handleToolCallResult(const ToolCallResultEvent& event);
 
     void handleStateSnapshot(const StateSnapshotEvent& event);
     void handleStateDelta(const StateDeltaEvent& event);
@@ -231,6 +243,9 @@ private:
     void handleRunStarted(const RunStartedEvent& event);
     void handleRunFinished(const RunFinishedEvent& event);
     void handleRunError(const RunErrorEvent& event);
+
+    void handleActivitySnapshot(const ActivitySnapshotEvent& event);
+    void handleActivityDelta(const ActivityDeltaEvent& event);
 
     AgentStateMutation notifySubscribers(
         std::function<AgentStateMutation(IAgentSubscriber*, const AgentSubscriberParams&)> notifyFunc);
@@ -241,7 +256,8 @@ private:
     void notifyStateChanged();
 
     Message* findMessage(const MessageId& id);
-    void appendEventDelta(const MessageId& messageId, const ToolCallId& toolCallId, const std::string &delta);
+    Message* findMessageContainingToolCall(const ToolCallId& toolCallId);
+    void appendEventDelta(const ToolCallId& toolCallId, const std::string &delta);
     AgentSubscriberParams createParams() const;
 };
 

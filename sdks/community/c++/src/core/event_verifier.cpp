@@ -66,11 +66,8 @@ void EventVerifier::verify(const Event& event) {
         }
         case EventType::ToolCallEnd: {
             const auto* endEvent = static_cast<const ToolCallEndEvent*>(&event);
-            std::string toolCallId;
-            
             if (endEvent) {
-                std::string toolCallId = endEvent->toolCallId;
-                verifyToolCall(eventType, toolCallId);
+                verifyToolCall(eventType, endEvent->toolCallId);
             }
             break;
         }

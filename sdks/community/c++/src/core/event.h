@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -8,6 +7,7 @@
 
 #include "core/error.h"
 #include "core/session_types.h"
+#include "core/state.h"
 
 namespace agui {
 
@@ -62,13 +62,16 @@ enum class EventType {
 
 /**
  * @brief Base event data containing common information for all events
+ *
+ * Both timestamp and rawEvent are optional fields per the AG-UI protocol.
+ * They are populated from the server JSON when present; otherwise left empty.
  */
 struct BaseEventData {
-    std::chrono::system_clock::time_point timestamp;
+    std::optional<int64_t> timestamp;           // milliseconds since epoch (optional per protocol)
 
     std::optional<nlohmann::json> rawEvent;
 
-    BaseEventData();
+    BaseEventData() = default;
 
     nlohmann::json toJson() const;
     static BaseEventData fromJson(const nlohmann::json& j);
@@ -97,6 +100,13 @@ public:
 
     const BaseEventData& baseData() const { return m_baseData; }
     void setRawEvent(const nlohmann::json& raw);
+
+protected:
+    /**
+     * @brief Build a JSON object pre-populated with base fields (timestamp, rawEvent).
+     * Derived toJson() implementations should start from this.
+     */
+    nlohmann::json baseFieldsToJson() const;
 };
 
 /**
@@ -139,7 +149,9 @@ struct TextMessageEndEvent : public Event {
  */
 struct TextMessageChunkEvent : public Event {
     MessageId messageId;
-    std::string content;
+    std::string delta;
+    std::optional<std::string> role;
+    std::optional<std::string> name;
 
     EventType type() const override { return EventType::TextMessageChunk; }
     nlohmann::json toJson() const override;
@@ -183,7 +195,7 @@ struct ThinkingTextMessageEndEvent : public Event {
 struct ToolCallStartEvent : public Event {
     ToolCallId toolCallId;
     std::string toolCallName;
-    MessageId parentMessageId;
+    std::optional<MessageId> parentMessageId;
 
     EventType type() const override { return EventType::ToolCallStart; }
     nlohmann::json toJson() const override;
@@ -195,7 +207,6 @@ struct ToolCallStartEvent : public Event {
  */
 struct ToolCallArgsEvent : public Event {
     ToolCallId toolCallId;
-    MessageId messageId;
     std::string delta;
 
     EventType type() const override { return EventType::ToolCallArgs; }
@@ -219,8 +230,9 @@ struct ToolCallEndEvent : public Event {
  */
 struct ToolCallChunkEvent : public Event {
     ToolCallId toolCallId;
-    std::string toolCallName;
-    std::string arguments;
+    std::optional<std::string> toolCallName;
+    std::string delta;
+    std::optional<MessageId> parentMessageId;
 
     EventType type() const override { return EventType::ToolCallChunk; }
     nlohmann::json toJson() const override;
@@ -231,8 +243,10 @@ struct ToolCallChunkEvent : public Event {
  * @brief Tool call result event
  */
 struct ToolCallResultEvent : public Event {
+    MessageId messageId;
     ToolCallId toolCallId;
-    std::string result;
+    std::string content;
+    std::optional<std::string> role;
 
     EventType type() const override { return EventType::ToolCallResult; }
     nlohmann::json toJson() const override;
@@ -291,20 +305,6 @@ struct MessagesSnapshotEvent : public Event {
 };
 
 /**
- * @brief JSON Patch operation (RFC 6902)
- */
-struct JsonPatchOperation {
-    std::string op;      // "add", "remove", "replace", "move", "copy", "test"
-    std::string path;    // JSON Pointer (RFC 6901)
-    nlohmann::json value;  // Operation value (optional)
-    std::string from;    // Source path (for move/copy, optional)
-    
-    nlohmann::json toJson() const;
-    static JsonPatchOperation fromJson(const nlohmann::json& j);
-    void validate() const;  // Validate operation validity
-};
-
-/**
  * @brief Activity snapshot event
  * Provides a complete snapshot of an activity message state
  */
@@ -325,9 +325,9 @@ struct ActivitySnapshotEvent : public Event {
  * Provides incremental updates to an activity message using JSON Patch
  */
 struct ActivityDeltaEvent : public Event {
-    MessageId messageId;                      // Associated message ID
-    std::string activityType;                 // Activity type
-    std::vector<JsonPatchOperation> patch;    // JSON Patch operations array
+    MessageId messageId;                 // Associated message ID
+    std::string activityType;            // Activity type
+    std::vector<JsonPatchOp> patch;      // JSON Patch operations (RFC 6902)
 
     EventType type() const override { return EventType::ActivityDelta; }
     nlohmann::json toJson() const override;
@@ -339,6 +339,7 @@ struct ActivityDeltaEvent : public Event {
  * @brief Run started event
  */
 struct RunStartedEvent : public Event {
+    ThreadId threadId;
     RunId runId;
 
     EventType type() const override { return EventType::RunStarted; }
@@ -350,6 +351,7 @@ struct RunStartedEvent : public Event {
  * @brief Run finished event
  */
 struct RunFinishedEvent : public Event {
+    ThreadId threadId;
     RunId runId;
     nlohmann::json result;
 
@@ -362,7 +364,8 @@ struct RunFinishedEvent : public Event {
  * @brief Run error event
  */
 struct RunErrorEvent : public Event {
-    std::string error;
+    std::string message;
+    std::optional<std::string> code;
 
     EventType type() const override { return EventType::RunError; }
     nlohmann::json toJson() const override;
@@ -373,7 +376,7 @@ struct RunErrorEvent : public Event {
  * @brief Step started event
  */
 struct StepStartedEvent : public Event {
-    std::string stepId;
+    std::string stepName;
 
     EventType type() const override { return EventType::StepStarted; }
     nlohmann::json toJson() const override;
@@ -384,7 +387,7 @@ struct StepStartedEvent : public Event {
  * @brief Step finished event
  */
 struct StepFinishedEvent : public Event {
-    std::string stepId;
+    std::string stepName;
 
     EventType type() const override { return EventType::StepFinished; }
     nlohmann::json toJson() const override;
@@ -395,7 +398,8 @@ struct StepFinishedEvent : public Event {
  * @brief Raw event
  */
 struct RawEvent : public Event {
-    std::string data;
+    nlohmann::json event;
+    std::optional<std::string> source;
 
     EventType type() const override { return EventType::Raw; }
     nlohmann::json toJson() const override;
@@ -406,8 +410,8 @@ struct RawEvent : public Event {
  * @brief Custom event
  */
 struct CustomEvent : public Event {
-    std::string eventType;
-    nlohmann::json data;
+    std::string name;
+    nlohmann::json value;
 
     EventType type() const override { return EventType::Custom; }
     nlohmann::json toJson() const override;
@@ -431,7 +435,6 @@ public:
      * @brief Parse event type from string
      * @param typeStr Type string
      * @return Event type enum
-     * @throws AgentError on invalid type
      */
     static EventType parseEventType(const std::string& typeStr);
 

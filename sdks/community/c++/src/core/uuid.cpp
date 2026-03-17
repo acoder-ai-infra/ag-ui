@@ -7,7 +7,7 @@
 namespace agui {
 
 // Initialize static member
-std::atomic<uint32_t> UuidGenerator::_counter(0);
+std::atomic<uint32_t> UuidGenerator::m_counter(0);
 
 // Global random number generator
 static std::mt19937& getGenerator() {
@@ -30,7 +30,7 @@ uint32_t UuidGenerator::getRandomNumber() {
 std::string UuidGenerator::generate() {
     uint64_t timestamp = getTimestamp();
     uint32_t random = getRandomNumber();
-    uint32_t count = _counter.fetch_add(1);
+    uint32_t count = m_counter.fetch_add(1);
 
     // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
     // - 13th character is fixed to '4' (version)

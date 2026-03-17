@@ -45,10 +45,10 @@ TEST(HttpAgentTest, BuilderParameterConfiguration) {
         Message("msg_2", MessageRole::Assistant, "Hi there!")
     };
 
-    std::string initialState = R"({
-        "counter": 0,
-        "status": "ready"
-    })";
+    nlohmann::json initialState = {
+        {"counter", 0},
+        {"status", "ready"}
+    };
 
     auto agent = HttpAgent::builder()
         .withUrl("http://localhost:8080")
@@ -165,4 +165,193 @@ TEST(HttpAgentTest, MultipleAgentInstances) {
     EXPECT_EQ(agent1->agentId(), "agent_1");
     EXPECT_EQ(agent2->agentId(), "agent_2");
     EXPECT_EQ(agent3->agentId(), "agent_3");
+}
+
+// ─── Mock HTTP Service ───────────────────────────────────────────────────────
+
+/**
+ * @brief Synchronous mock that feeds pre-configured SSE chunks to HttpAgent
+ *        without any real network I/O.
+ */
+class MockHttpService : public IHttpService {
+public:
+    // Chunks fed to onData callback, one by one
+    std::vector<std::string> sseChunks;
+    // When true, calls errorCallbackFunc instead of streaming
+    bool simulateNetworkError = false;
+    std::string networkErrorMessage = "Connection refused";
+
+    void sendRequest(const HttpRequest&, HttpResponseCallback, HttpErrorCallback) override {}
+
+    void sendSseRequest(const HttpRequest&, SseDataCallback onData,
+                        SseCompleteCallback onComplete, HttpErrorCallback onError) override {
+        if (simulateNetworkError) {
+            if (onError) {
+                onError(AgentError(ErrorType::Network, ErrorCode::NetworkError, networkErrorMessage));
+            }
+            return;
+        }
+
+        // Feed each SSE chunk synchronously
+        for (const auto& chunk : sseChunks) {
+            if (onData) {
+                HttpResponse resp;
+                resp.statusCode = 200;
+                resp.content = chunk;
+                onData(resp);
+            }
+        }
+
+        // Signal stream completion
+        if (onComplete) {
+            HttpResponse resp;
+            resp.statusCode = 200;
+            resp.content = "success";
+            onComplete(resp);
+        }
+    }
+};
+
+// Helper: build a minimal agent with the given mock service injected
+static std::unique_ptr<HttpAgent> makeAgentWithMock(std::unique_ptr<MockHttpService> mock) {
+    auto agent = HttpAgent::builder()
+        .withUrl("http://mock-host/run")
+        .withAgentId(AgentId("mock_agent"))
+        .build();
+    agent->setHttpService(std::move(mock));
+    return agent;
+}
+
+// ─── Core Path Tests ─────────────────────────────────────────────────────────
+
+TEST(HttpAgentTest, RunAgentCallsOnSuccessOnNormalCompletion) {
+    auto mock = std::make_unique<MockHttpService>();
+    mock->sseChunks = {
+        "data: {\"type\":\"RUN_STARTED\",\"threadId\":\"t1\",\"runId\":\"r1\"}\n\n",
+        "data: {\"type\":\"TEXT_MESSAGE_START\",\"messageId\":\"msg1\",\"role\":\"assistant\"}\n\n",
+        "data: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"msg1\",\"delta\":\"Hello\"}\n\n",
+        "data: {\"type\":\"TEXT_MESSAGE_END\",\"messageId\":\"msg1\"}\n\n",
+        "data: {\"type\":\"RUN_FINISHED\",\"threadId\":\"t1\",\"runId\":\"r1\"}\n\n",
+    };
+
+    auto agent = makeAgentWithMock(std::move(mock));
+
+    bool successCalled = false;
+    bool errorCalled = false;
+    RunAgentResult capturedResult;
+
+    RunAgentParams params;
+    params.threadId = "t1";
+    params.runId = "r1";
+
+    agent->runAgent(
+        params,
+        [&](const RunAgentResult& result) {
+            successCalled = true;
+            capturedResult = result;
+        },
+        [&](const std::string&) {
+            errorCalled = true;
+        });
+
+    EXPECT_TRUE(successCalled);
+    EXPECT_FALSE(errorCalled);
+    // One new message should have been produced during this run
+    ASSERT_EQ(capturedResult.newMessages.size(), 1);
+    EXPECT_EQ(capturedResult.newMessages[0].content(), "Hello");
+}
+
+TEST(HttpAgentTest, RunAgentCallsOnErrorOnRunErrorEvent) {
+    auto mock = std::make_unique<MockHttpService>();
+    mock->sseChunks = {
+        "data: {\"type\":\"RUN_STARTED\",\"threadId\":\"t1\",\"runId\":\"r1\"}\n\n",
+        "data: {\"type\":\"RUN_ERROR\",\"message\":\"Something went wrong\"}\n\n",
+    };
+
+    auto agent = makeAgentWithMock(std::move(mock));
+
+    bool successCalled = false;
+    bool errorCalled = false;
+    std::string capturedError;
+
+    RunAgentParams params;
+    params.threadId = "t1";
+    params.runId = "r1";
+
+    agent->runAgent(
+        params,
+        [&](const RunAgentResult&) {
+            successCalled = true;
+        },
+        [&](const std::string& err) {
+            errorCalled = true;
+            capturedError = err;
+        });
+
+    EXPECT_FALSE(successCalled);
+    EXPECT_TRUE(errorCalled);
+    EXPECT_FALSE(capturedError.empty());
+}
+
+TEST(HttpAgentTest, RunAgentCallsOnErrorOnNetworkFailure) {
+    auto mock = std::make_unique<MockHttpService>();
+    mock->simulateNetworkError = true;
+    mock->networkErrorMessage = "Connection refused";
+
+    auto agent = makeAgentWithMock(std::move(mock));
+
+    bool successCalled = false;
+    bool errorCalled = false;
+
+    RunAgentParams params;
+    params.threadId = "t1";
+    params.runId = "r1";
+
+    agent->runAgent(
+        params,
+        [&](const RunAgentResult&) {
+            successCalled = true;
+        },
+        [&](const std::string& error) {
+            errorCalled = true;
+            EXPECT_TRUE(error.find("Connection refused") != std::string::npos);
+        });
+
+    EXPECT_FALSE(successCalled);
+    EXPECT_TRUE(errorCalled);
+}
+
+TEST(HttpAgentTest, RunAgentSkipsMalformedJsonAndSucceeds) {
+    auto mock = std::make_unique<MockHttpService>();
+    mock->sseChunks = {
+        // Malformed JSON in a data line — should be skipped (L-1 fix)
+        "data: {not valid json}\n\n",
+        "data: {\"type\":\"RUN_STARTED\",\"threadId\":\"t1\",\"runId\":\"r1\"}\n\n",
+        "data: {\"type\":\"TEXT_MESSAGE_START\",\"messageId\":\"msg1\",\"role\":\"assistant\"}\n\n",
+        "data: {\"type\":\"TEXT_MESSAGE_CONTENT\",\"messageId\":\"msg1\",\"delta\":\"World\"}\n\n",
+        "data: {\"type\":\"TEXT_MESSAGE_END\",\"messageId\":\"msg1\"}\n\n",
+        "data: {\"type\":\"RUN_FINISHED\",\"threadId\":\"t1\",\"runId\":\"r1\"}\n\n",
+    };
+
+    auto agent = makeAgentWithMock(std::move(mock));
+
+    bool successCalled = false;
+    bool errorCalled = false;
+
+    RunAgentParams params;
+    params.threadId = "t1";
+    params.runId = "r1";
+
+    agent->runAgent(
+        params,
+        [&](const RunAgentResult& result) {
+            successCalled = true;
+            EXPECT_EQ(result.newMessages.size(), 1);
+        },
+        [&](const std::string&) {
+            errorCalled = true;
+        });
+
+    EXPECT_TRUE(successCalled);
+    EXPECT_FALSE(errorCalled);
 }

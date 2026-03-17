@@ -23,8 +23,8 @@ namespace agui {
  */
 class SseParser {
 public:
-    SseParser();
-    ~SseParser();
+    SseParser() = default;
+    ~SseParser() = default;
 
     /**
      * @brief Feed data chunk to parser
@@ -79,10 +79,10 @@ private:
      */
     void finishEvent();
 
-    std::string _buffer;
-    std::queue<std::string> _eventStrings;
-    std::string _lastError;
-    std::string _currentData;
+    std::string m_buffer;
+    std::queue<std::string> m_eventStrings;
+    std::string m_lastError;
+    std::string m_currentData;
 };
 
 }  // namespace agui

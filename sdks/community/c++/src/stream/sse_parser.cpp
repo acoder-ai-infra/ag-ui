@@ -2,55 +2,51 @@
 
 namespace agui {
 
-SseParser::SseParser() {}
-
-SseParser::~SseParser() {}
-
 void SseParser::feed(const std::string& chunk) {
-    _buffer += chunk;
+    m_buffer += chunk;
     processBuffer();
 }
 
 bool SseParser::hasEvent() const {
-    return !_eventStrings.empty();
+    return !m_eventStrings.empty();
 }
 
 std::string SseParser::nextEvent() {
-    if (_eventStrings.empty()) {
+    if (m_eventStrings.empty()) {
         return "";
     }
     
-    std::string jsonStr = _eventStrings.front();
-    _eventStrings.pop();
+    std::string jsonStr = m_eventStrings.front();
+    m_eventStrings.pop();
     return jsonStr;
 }
 
 void SseParser::clear() {
-    _buffer.clear();
-    while (!_eventStrings.empty()) {
-        _eventStrings.pop();
+    m_buffer.clear();
+    while (!m_eventStrings.empty()) {
+        m_eventStrings.pop();
     }
-    _currentData.clear();
-    _lastError.clear();
+    m_currentData.clear();
+    m_lastError.clear();
 }
 
 void SseParser::flush() {
     // Force completion of current unfinished event
-    if (!_currentData.empty()) {
+    if (!m_currentData.empty()) {
         finishEvent();
     }
 }
 
 std::string SseParser::getLastError() const {
-    return _lastError;
+    return m_lastError;
 }
 
 void SseParser::processBuffer() {
     size_t pos = 0;
 
-    while ((pos = _buffer.find('\n')) != std::string::npos) {
-        std::string line = _buffer.substr(0, pos);
-        _buffer = _buffer.substr(pos + 1);
+    while ((pos = m_buffer.find('\n')) != std::string::npos) {
+        std::string line = m_buffer.substr(0, pos);
+        m_buffer = m_buffer.substr(pos + 1);
 
         // Remove trailing \r
         if (!line.empty() && line[line.length() - 1] == '\r') {
@@ -88,23 +84,23 @@ void SseParser::parseLine(const std::string& line) {
 
     // Only process data field, ignore event and id
     if (field == "data") {
-        if (!_currentData.empty()) {
-            _currentData += "\n";
+        if (!m_currentData.empty()) {
+            m_currentData += "\n";
         }
-        _currentData += value;
+        m_currentData += value;
     }
     // Ignore other fields (event, id, retry, etc.)
 }
 
 void SseParser::finishEvent() {
     // Only create event when there is data
-    if (!_currentData.empty()) {
+    if (!m_currentData.empty()) {
         // Store JSON string directly without parsing here
-        _eventStrings.push(_currentData);
-        _lastError.clear();
+        m_eventStrings.push(m_currentData);
+        m_lastError.clear();
 
         // Clear current event data
-        _currentData.clear();
+        m_currentData.clear();
     }
 }
 

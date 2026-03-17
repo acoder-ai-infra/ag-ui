@@ -1,8 +1,8 @@
 /**
  * @file test_activity_events.cpp
  * @brief Activity Events functionality tests
- * 
- * Tests ActivitySnapshotEvent, ActivityDeltaEvent, JsonPatchOperation and EventParser
+ *
+ * Tests ActivitySnapshotEvent, ActivityDeltaEvent, JsonPatchOp and EventParser
  */
 
 #include <gtest/gtest.h>
@@ -10,6 +10,7 @@
 #include <string>
 
 #include "core/event.h"
+#include "core/state.h"
 
 using namespace agui;
 
@@ -71,10 +72,10 @@ TEST(ActivityEventsTest, ActivitySnapshotEventValidation) {
     EXPECT_NO_THROW(event.validate());
 }
 
-// JsonPatchOperation Tests
-TEST(ActivityEventsTest, JsonPatchOperationBasic) {
-    JsonPatchOperation op;
-    op.op = "add";
+// JsonPatchOp Tests
+TEST(ActivityEventsTest, JsonPatchOpBasic) {
+    JsonPatchOp op;
+    op.op = PatchOperation::Add;
     op.path = "/status";
     op.value = "completed";
 
@@ -84,58 +85,77 @@ TEST(ActivityEventsTest, JsonPatchOperationBasic) {
     EXPECT_EQ(j["value"], "completed");
 }
 
-TEST(ActivityEventsTest, JsonPatchOperationValidation) {
-    JsonPatchOperation op;
-    
-    // Invalid operation
-    op.op = "invalid";
-    op.path = "/test";
-    EXPECT_THROW(op.validate(), AgentError);
-    
+TEST(ActivityEventsTest, JsonPatchOpValidation) {
+    JsonPatchOp op;
+
     // Invalid path (doesn't start with /)
-    op.op = "add";
+    op.op = PatchOperation::Add;
     op.path = "test";
     EXPECT_THROW(op.validate(), AgentError);
-    
+
     // move operation without from
-    op.op = "move";
+    op.op = PatchOperation::Move;
     op.path = "/new";
     EXPECT_THROW(op.validate(), AgentError);
-    
-    // add operation without value
-    op.op = "add";
+
+    // add operation without value (null counts as missing)
+    op.op = PatchOperation::Add;
     op.path = "/test";
     op.value = nlohmann::json();
     EXPECT_THROW(op.validate(), AgentError);
-    
+
     // Valid add operation
     op.value = "test";
     EXPECT_NO_THROW(op.validate());
-    
+
     // Valid move operation
-    op.op = "move";
+    op.op = PatchOperation::Move;
     op.from = "/old";
     op.value = nlohmann::json();
     EXPECT_NO_THROW(op.validate());
 }
 
-TEST(ActivityEventsTest, JsonPatchOperationAllTypes) {
-    // Test all 6 operation types
-    std::vector<std::string> validOps = {"add", "remove", "replace", "move", "copy", "test"};
-    
-    for (const auto& opType : validOps) {
-        JsonPatchOperation op;
-        op.op = opType;
-        op.path = "/test";
-        
-        if (opType == "move" || opType == "copy") {
-            op.from = "/source";
-        } else if (opType != "remove") {
-            op.value = "value";
-        }
-        
-        EXPECT_NO_THROW(op.validate());
-    }
+TEST(ActivityEventsTest, JsonPatchOpAllTypes) {
+    // add
+    JsonPatchOp addOp;
+    addOp.op = PatchOperation::Add;
+    addOp.path = "/test";
+    addOp.value = "value";
+    EXPECT_NO_THROW(addOp.validate());
+
+    // remove (no value required)
+    JsonPatchOp removeOp;
+    removeOp.op = PatchOperation::Remove;
+    removeOp.path = "/test";
+    EXPECT_NO_THROW(removeOp.validate());
+
+    // replace
+    JsonPatchOp replaceOp;
+    replaceOp.op = PatchOperation::Replace;
+    replaceOp.path = "/test";
+    replaceOp.value = "value";
+    EXPECT_NO_THROW(replaceOp.validate());
+
+    // move
+    JsonPatchOp moveOp;
+    moveOp.op = PatchOperation::Move;
+    moveOp.path = "/test";
+    moveOp.from = "/source";
+    EXPECT_NO_THROW(moveOp.validate());
+
+    // copy
+    JsonPatchOp copyOp;
+    copyOp.op = PatchOperation::Copy;
+    copyOp.path = "/test";
+    copyOp.from = "/source";
+    EXPECT_NO_THROW(copyOp.validate());
+
+    // test
+    JsonPatchOp testOp;
+    testOp.op = PatchOperation::Test;
+    testOp.path = "/test";
+    testOp.value = "value";
+    EXPECT_NO_THROW(testOp.validate());
 }
 
 // ActivityDeltaEvent Tests
@@ -143,17 +163,17 @@ TEST(ActivityEventsTest, ActivityDeltaEventBasic) {
     ActivityDeltaEvent event;
     event.messageId = "msg-789";
     event.activityType = "PLAN";
-    
-    JsonPatchOperation op1;
-    op1.op = "add";
+
+    JsonPatchOp op1;
+    op1.op = PatchOperation::Add;
     op1.path = "/step";
     op1.value = 2;
-    
-    JsonPatchOperation op2;
-    op2.op = "replace";
+
+    JsonPatchOp op2;
+    op2.op = PatchOperation::Replace;
     op2.path = "/status";
     op2.value = "in_progress";
-    
+
     event.patch.push_back(op1);
     event.patch.push_back(op2);
 
@@ -182,29 +202,33 @@ TEST(ActivityEventsTest, ActivityDeltaEventFromJson) {
     EXPECT_EQ(event.messageId, "msg-101");
     EXPECT_EQ(event.activityType, "SEARCH");
     EXPECT_EQ(event.patch.size(), 2);
-    EXPECT_EQ(event.patch[0].op, "add");
+    EXPECT_EQ(event.patch[0].op, PatchOperation::Add);
     EXPECT_EQ(event.patch[0].path, "/results/0");
-    EXPECT_EQ(event.patch[1].op, "remove");
+    EXPECT_EQ(event.patch[1].op, PatchOperation::Remove);
 }
 
 TEST(ActivityEventsTest, ActivityDeltaEventValidation) {
     ActivityDeltaEvent event;
-    
+
     event.messageId = "msg-123";
     event.activityType = "PLAN";
-    
+
+    // Empty patch must throw
     EXPECT_THROW(event.validate(), AgentError);
-    JsonPatchOperation op;
-    op.op = "add";
+
+    JsonPatchOp op;
+    op.op = PatchOperation::Add;
     op.path = "/test";
     op.value = "data";
     event.patch.push_back(op);
     EXPECT_NO_THROW(event.validate());
-    event.patch[0].op = "invalid";
+
+    // Invalid path (no leading /) triggers validation error
+    event.patch[0].path = "invalid_path";
     EXPECT_THROW(event.validate(), AgentError);
-    
+
     // Valid event
-    event.patch[0].op = "add";
+    event.patch[0].path = "/test";
     EXPECT_NO_THROW(event.validate());
 }
 
@@ -283,18 +307,18 @@ TEST(ActivityEventsTest, ActivityDeltaWithMultipleOperations) {
     event.activityType = "PROCESSING";
     
     // Add multiple operations
-    JsonPatchOperation op1;
-    op1.op = "add";
+    JsonPatchOp op1;
+    op1.op = PatchOperation::Add;
     op1.path = "/results/-";
     op1.value = "new_result";
-    
-    JsonPatchOperation op2;
-    op2.op = "replace";
+
+    JsonPatchOp op2;
+    op2.op = PatchOperation::Replace;
     op2.path = "/status";
     op2.value = "processing";
-    
-    JsonPatchOperation op3;
-    op3.op = "remove";
+
+    JsonPatchOp op3;
+    op3.op = PatchOperation::Remove;
     op3.path = "/temp_data";
     
     event.patch.push_back(op1);

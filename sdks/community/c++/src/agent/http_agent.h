@@ -2,6 +2,7 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -86,12 +87,12 @@ public:
         std::unique_ptr<HttpAgent> build();
 
     private:
-        std::string _url;
-        std::map<std::string, std::string> _headers;
-        uint32_t _timeout;
-        AgentId _agentId;
-        std::vector<Message> _initialMessages;
-        std::string _initialState;
+        std::string m_url;
+        std::map<std::string, std::string> m_headers;
+        uint32_t m_timeout;
+        AgentId m_agentId;
+        std::vector<Message> m_initialMessages;
+        std::string m_initialState;
     };
 
     /**
@@ -193,6 +194,12 @@ public:
      */
     MiddlewareChain& middlewareChain();
 
+    /**
+     * @brief Replace the HTTP service (dependency injection, useful for testing)
+     * @param service Custom IHttpService implementation
+     */
+    void setHttpService(std::unique_ptr<IHttpService> service);
+
 private:
     /**
      * @brief Constructor (private)
@@ -221,23 +228,26 @@ private:
      */
     void cleanupPerRunSubscribers();
 
-    std::string _baseUrl;
-    std::map<std::string, std::string> _headers;
-    AgentId _agentId;
-    uint32_t _timeoutSeconds;
+    std::string m_baseUrl;
+    std::map<std::string, std::string> m_headers;
+    AgentId m_agentId;
+    uint32_t m_timeoutSeconds;
 
     // Persistent EventHandler
-    std::shared_ptr<EventHandler> _eventHandler;
+    std::shared_ptr<EventHandler> m_eventHandler;
 
-    std::unique_ptr<HttpService> _httpService;
-    std::unique_ptr<SseParser> _sseParser;
+    std::unique_ptr<IHttpService> m_httpService;
+    std::unique_ptr<SseParser> m_sseParser;
     
     // Middleware chain
-    MiddlewareChain _middlewareChain;
+    MiddlewareChain m_middlewareChain;
 
     // Per-run subscribers added via RunAgentParams; removed after each runAgent() call
-    std::vector<std::shared_ptr<IAgentSubscriber>> _perRunSubscribers;
-    
+    std::vector<std::shared_ptr<IAgentSubscriber>> m_perRunSubscribers;
+
+    // Message IDs present before the run starts; used to compute the newMessages delta
+    std::set<MessageId> m_preRunMessageIds;
+
     // Set to true when a RUN_ERROR event or a fatal event-processing error is
     // encountered during streaming
     bool m_runErrorOccurred = false;

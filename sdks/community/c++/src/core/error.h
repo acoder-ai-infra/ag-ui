@@ -64,10 +64,10 @@ struct StackFrame {
 
 class AgentError : public std::exception {
 private:
-    ErrorType m_type;
-    ErrorCode m_code;
+    ErrorType m_type = ErrorType::Unknown;
+    ErrorCode m_code = ErrorCode::Unknown;
     std::string m_message;
-    ErrorSeverity m_severity;
+    ErrorSeverity m_severity = ErrorSeverity::Info;
     RecoveryStrategy m_recoveryStrategy;
     std::vector<StackFrame> m_stackTrace;
     std::map<std::string, std::string> m_context;

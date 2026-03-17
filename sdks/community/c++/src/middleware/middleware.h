@@ -28,10 +28,7 @@ struct MiddlewareContext {
     std::map<std::string, std::string> metadata;
     MiddlewareContext(const RunAgentInput* inp, RunAgentResult* res) 
         : input(inp), 
-          result(res),
-          currentMessages(nullptr),
-          currentState(nullptr),
-          shouldContinue(true) {}
+          result(res) {}
 };
 
 class IMiddleware {

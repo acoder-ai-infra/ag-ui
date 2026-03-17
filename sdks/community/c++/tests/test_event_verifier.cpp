@@ -287,6 +287,76 @@ TEST(EventVerifierTest, GetToolCallState) {
     EXPECT_EQ(verifier.getToolCallState("tool-1"), EventVerifier::EventState::Ended);
 }
 
+TEST(EventVerifierTest, ToolCallStartEventRoundTripsWithParentMessageId) {
+    ToolCallStartEvent event;
+    event.toolCallId = "call-1";
+    event.toolCallName = "search";
+    event.parentMessageId = "msg-1";
+
+    const auto json = event.toJson();
+    const auto parsed = ToolCallStartEvent::fromJson(json);
+
+    EXPECT_EQ(parsed.toolCallId, "call-1");
+    EXPECT_EQ(parsed.toolCallName, "search");
+    ASSERT_TRUE(parsed.parentMessageId.has_value());
+    EXPECT_EQ(parsed.parentMessageId.value(), "msg-1");
+}
+
+TEST(EventVerifierTest, ToolCallStartEventRoundTripsWithoutParentMessageId) {
+    ToolCallStartEvent event;
+    event.toolCallId = "call-1";
+    event.toolCallName = "search";
+    // parentMessageId intentionally not set
+
+    const auto json = event.toJson();
+    const auto parsed = ToolCallStartEvent::fromJson(json);
+
+    EXPECT_EQ(parsed.toolCallId, "call-1");
+    EXPECT_EQ(parsed.toolCallName, "search");
+    EXPECT_FALSE(parsed.parentMessageId.has_value());
+    EXPECT_FALSE(json.contains("parentMessageId"));
+}
+
+TEST(EventVerifierTest, ToolCallArgsEventRoundTripsWithoutMessageId) {
+    ToolCallArgsEvent event;
+    event.toolCallId = "call-1";
+    event.delta = "{\"query\":\"test\"}";
+
+    const auto json = event.toJson();
+    const auto parsed = ToolCallArgsEvent::fromJson(json);
+
+    EXPECT_EQ(parsed.toolCallId, "call-1");
+    EXPECT_EQ(parsed.delta, "{\"query\":\"test\"}");
+    // Verify the removed field is absent from the serialized JSON
+    EXPECT_FALSE(json.contains("messageId"));
+}
+
+TEST(EventVerifierTest, RunStartedEventRoundTripsThreadId) {
+    RunStartedEvent event;
+    event.threadId = "thread-1";
+    event.runId = "run-1";
+
+    const auto json = event.toJson();
+    const auto parsed = RunStartedEvent::fromJson(json);
+
+    EXPECT_EQ(parsed.threadId, "thread-1");
+    EXPECT_EQ(parsed.runId, "run-1");
+}
+
+TEST(EventVerifierTest, RunFinishedEventRoundTripsThreadId) {
+    RunFinishedEvent event;
+    event.threadId = "thread-1";
+    event.runId = "run-1";
+    event.result = {{"status", "ok"}};
+
+    const auto json = event.toJson();
+    const auto parsed = RunFinishedEvent::fromJson(json);
+
+    EXPECT_EQ(parsed.threadId, "thread-1");
+    EXPECT_EQ(parsed.runId, "run-1");
+    EXPECT_EQ(parsed.result["status"], "ok");
+}
+
 // Reset Tests
 TEST(EventVerifierTest, ResetVerifier) {
     EventVerifier verifier;
@@ -401,4 +471,77 @@ TEST(EventVerifierTest, MultipleIncompleteEvents) {
     
     EXPECT_EQ(incompleteMessages.size(), 2);
     EXPECT_EQ(incompleteToolCalls.size(), 1);
+}
+
+TEST(EventVerifierTest, TextMessageChunkEventRoundTrips) {
+    TextMessageChunkEvent event;
+    event.messageId = "msg-1";
+    event.delta = "Hello, world!";
+    event.role = "assistant";
+    event.name = "assistant-name";
+
+    const auto json = event.toJson();
+    const auto parsed = TextMessageChunkEvent::fromJson(json);
+
+    EXPECT_EQ(parsed.messageId, "msg-1");
+    EXPECT_EQ(parsed.delta, "Hello, world!");
+    ASSERT_TRUE(parsed.role.has_value());
+    EXPECT_EQ(parsed.role.value(), "assistant");
+    ASSERT_TRUE(parsed.name.has_value());
+    EXPECT_EQ(parsed.name.value(), "assistant-name");
+    // Ensure the old field name is absent from serialized JSON
+    EXPECT_FALSE(json.contains("content"));
+    EXPECT_TRUE(json.contains("delta"));
+}
+
+TEST(EventVerifierTest, TextMessageChunkEventRoundTripsWithoutOptionalFields) {
+    TextMessageChunkEvent event;
+    event.messageId = "msg-1";
+    event.delta = "chunk";
+
+    const auto json = event.toJson();
+    const auto parsed = TextMessageChunkEvent::fromJson(json);
+
+    EXPECT_EQ(parsed.messageId, "msg-1");
+    EXPECT_EQ(parsed.delta, "chunk");
+    EXPECT_FALSE(parsed.role.has_value());
+    EXPECT_FALSE(parsed.name.has_value());
+    EXPECT_FALSE(json.contains("role"));
+    EXPECT_FALSE(json.contains("name"));
+}
+
+TEST(EventVerifierTest, ToolCallChunkEventRoundTrips) {
+    ToolCallChunkEvent event;
+    event.toolCallId = "call-1";
+    event.toolCallName = "search";
+    event.delta = "{\"query\":";
+    event.parentMessageId = "msg-1";
+
+    const auto json = event.toJson();
+    const auto parsed = ToolCallChunkEvent::fromJson(json);
+
+    EXPECT_EQ(parsed.toolCallId, "call-1");
+    ASSERT_TRUE(parsed.toolCallName.has_value());
+    EXPECT_EQ(parsed.toolCallName.value(), "search");
+    EXPECT_EQ(parsed.delta, "{\"query\":");
+    ASSERT_TRUE(parsed.parentMessageId.has_value());
+    EXPECT_EQ(parsed.parentMessageId.value(), "msg-1");
+    EXPECT_FALSE(json.contains("arguments"));
+    EXPECT_TRUE(json.contains("delta"));
+}
+
+TEST(EventVerifierTest, ToolCallChunkEventRoundTripsWithoutOptionalFields) {
+    ToolCallChunkEvent event;
+    event.toolCallId = "call-1";
+    event.delta = "test";
+
+    const auto json = event.toJson();
+    const auto parsed = ToolCallChunkEvent::fromJson(json);
+
+    EXPECT_EQ(parsed.toolCallId, "call-1");
+    EXPECT_EQ(parsed.delta, "test");
+    EXPECT_FALSE(parsed.toolCallName.has_value());
+    EXPECT_FALSE(parsed.parentMessageId.has_value());
+    EXPECT_FALSE(json.contains("toolCallName"));
+    EXPECT_FALSE(json.contains("parentMessageId"));
 }
