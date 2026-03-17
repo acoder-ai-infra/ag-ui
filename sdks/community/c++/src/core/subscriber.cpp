@@ -40,6 +40,9 @@ AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
         case EventType::TextMessageEnd:
             handleTextMessageEnd(*static_cast<TextMessageEndEvent*>(event.get()));
             break;
+        case EventType::TextMessageChunk:
+            handleTextMessageChunk(*static_cast<TextMessageChunkEvent*>(event.get()));
+            break;
         case EventType::ThinkingTextMessageStart:
             handleThinkingTextMessageStart(*static_cast<ThinkingTextMessageStartEvent*>(event.get()));
             break;
@@ -57,6 +60,9 @@ AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
             break;
         case EventType::ToolCallEnd:
             handleToolCallEnd(*static_cast<ToolCallEndEvent*>(event.get()));
+            break;
+        case EventType::ToolCallChunk:
+            handleToolCallChunk(*static_cast<ToolCallChunkEvent*>(event.get()));
             break;
         case EventType::ToolCallResult:
             handleToolCallResult(*static_cast<ToolCallResultEvent*>(event.get()));
@@ -298,6 +304,8 @@ void EventHandler::handleTextMessageStart(const TextMessageStartEvent& event) {
         Message message = Message::createWithId(event.messageId, Message::roleFromString(event.role), "");
         m_messages.push_back(message);
         notifyNewMessage(m_messages.back());
+    } else {
+        existingMessage->setRole(Message::roleFromString(event.role));
     }
     m_textBuffers[event.messageId] = "";
 }
@@ -313,6 +321,40 @@ void EventHandler::handleTextMessageContent(const TextMessageContentEvent& event
 void EventHandler::handleTextMessageEnd(const TextMessageEndEvent& event) {
     m_textBuffers.erase(event.messageId);
     notifyMessagesChanged();
+}
+
+void EventHandler::handleTextMessageChunk(const TextMessageChunkEvent& event) {
+    const MessageId targetMessageId = event.messageId.empty() ? m_lastTextChunkMessageId : event.messageId;
+    if (targetMessageId.empty()) {
+        return;
+    }
+
+    m_lastTextChunkMessageId = targetMessageId;
+
+    Message* message = findMessage(targetMessageId);
+    if (!message) {
+        Message newMessage = Message::createWithId(
+            targetMessageId,
+            Message::roleFromString(event.role.value_or("assistant")),
+            "");
+        if (event.name.has_value()) {
+            newMessage.setName(event.name.value());
+        }
+        m_messages.push_back(newMessage);
+        notifyNewMessage(m_messages.back());
+        message = &m_messages.back();
+    } else if (event.role.has_value()) {
+        message->setRole(Message::roleFromString(event.role.value()));
+    }
+
+    if (message && event.name.has_value()) {
+        message->setName(event.name.value());
+    }
+
+    m_textBuffers[targetMessageId] += event.delta;
+    if (message) {
+        message->appendContent(event.delta);
+    }
 }
 
 void EventHandler::handleThinkingTextMessageStart(const ThinkingTextMessageStartEvent& event) {
@@ -364,6 +406,45 @@ void EventHandler::handleToolCallArgs(const ToolCallArgsEvent& event) {
 void EventHandler::handleToolCallEnd(const ToolCallEndEvent& event) {
     m_toolCallArgsBuffers.erase(event.toolCallId);
     notifyMessagesChanged();
+}
+
+void EventHandler::handleToolCallChunk(const ToolCallChunkEvent& event) {
+    const ToolCallId targetToolCallId = event.toolCallId.empty() ? m_lastToolCallChunkId : event.toolCallId;
+    if (targetToolCallId.empty()) {
+        return;
+    }
+
+    m_lastToolCallChunkId = targetToolCallId;
+
+    Message* targetMessage = findMessageContainingToolCall(targetToolCallId);
+    if (!targetMessage) {
+        if (!event.toolCallName.has_value()) {
+            return;
+        }
+
+        if (event.parentMessageId.has_value()) {
+            targetMessage = findMessage(event.parentMessageId.value());
+        }
+
+        if (!targetMessage) {
+            const MessageId targetMessageId =
+                event.parentMessageId.has_value() ? event.parentMessageId.value() : targetToolCallId;
+            Message message = Message::createWithId(targetMessageId, MessageRole::Assistant, "");
+            m_messages.push_back(message);
+            targetMessage = &m_messages.back();
+            notifyNewMessage(*targetMessage);
+        }
+
+        ToolCall toolCall;
+        toolCall.id = targetToolCallId;
+        toolCall.function.name = event.toolCallName.value();
+        toolCall.function.arguments = "";
+        targetMessage->addToolCall(toolCall);
+        notifyNewToolCall(toolCall);
+    }
+
+    m_toolCallArgsBuffers[targetToolCallId] += event.delta;
+    appendEventDelta(targetToolCallId, event.delta);
 }
 
 void EventHandler::handleStateSnapshot(const StateSnapshotEvent& event) {

@@ -49,6 +49,7 @@ RunAgentResult MiddlewareChain::processResponse(const RunAgentResult& result, Mi
 std::vector<std::unique_ptr<Event>> MiddlewareChain::processEvent(std::unique_ptr<Event> event, 
                                                                    MiddlewareContext& context) {
     std::vector<std::unique_ptr<Event>> result;
+    std::vector<std::unique_ptr<Event>> afterEvents;
     
     if (!event) {
         return result;
@@ -78,9 +79,9 @@ std::vector<std::unique_ptr<Event>> MiddlewareChain::processEvent(std::unique_pt
 
         // 4. Generate after events
         if (processedEvent) {
-            auto afterEvents = middleware->afterEvent(*processedEvent, context);
-            for (auto& e : afterEvents) {
-                result.push_back(std::move(e));
+            auto middlewareAfterEvents = middleware->afterEvent(*processedEvent, context);
+            for (auto& e : middlewareAfterEvents) {
+                afterEvents.push_back(std::move(e));
             }
         }
     }
@@ -88,6 +89,9 @@ std::vector<std::unique_ptr<Event>> MiddlewareChain::processEvent(std::unique_pt
     // 5. Add processed event
     if (processedEvent) {
         result.push_back(std::move(processedEvent));
+    }
+    for (auto& e : afterEvents) {
+        result.push_back(std::move(e));
     }
 
     return result;

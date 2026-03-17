@@ -222,11 +222,13 @@ private:
     std::map<MessageId, std::string> m_textBuffers;
     std::map<ToolCallId, std::string> m_toolCallArgsBuffers;
     std::string m_thinkingBuffer;
+    MessageId m_lastTextChunkMessageId;
+    ToolCallId m_lastToolCallChunkId;
 
     void handleTextMessageStart(const TextMessageStartEvent& event);
     void handleTextMessageContent(const TextMessageContentEvent& event);
     void handleTextMessageEnd(const TextMessageEndEvent& event);
-
+    void handleTextMessageChunk(const TextMessageChunkEvent& event);
     void handleThinkingTextMessageStart(const ThinkingTextMessageStartEvent& event);
     void handleThinkingTextMessageContent(const ThinkingTextMessageContentEvent& event);
     void handleThinkingTextMessageEnd(const ThinkingTextMessageEndEvent& event);
@@ -234,6 +236,7 @@ private:
     void handleToolCallStart(const ToolCallStartEvent& event);
     void handleToolCallArgs(const ToolCallArgsEvent& event);
     void handleToolCallEnd(const ToolCallEndEvent& event);
+    void handleToolCallChunk(const ToolCallChunkEvent& event);
     void handleToolCallResult(const ToolCallResultEvent& event);
 
     void handleStateSnapshot(const StateSnapshotEvent& event);

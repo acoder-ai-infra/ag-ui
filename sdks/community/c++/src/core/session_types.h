@@ -85,6 +85,7 @@ public:
 
     void setRole(const MessageRole &role) {m_role = role;}
     void setContent(const std::string& content) { m_content = content; }
+    void setName(const std::string& name) { m_name = name; }
     void appendContent(const std::string& delta) { m_content += delta; }
     void addToolCall(const ToolCall& toolCall) { m_toolCalls.push_back(toolCall); }
     void setActivityType(const std::string& type) { m_activityType = type; }

@@ -20,9 +20,37 @@ using namespace agui;
 class TestSubscriber : public IAgentSubscriber {
 public:
     int textMessageStartCount = 0;
+    int textMessageChunkCount = 0;
+    int toolCallStartCount = 0;
+    int toolCallChunkCount = 0;
+
     AgentStateMutation onTextMessageStart(const TextMessageStartEvent& event,
                                           const AgentSubscriberParams& params) override {
         textMessageStartCount++;
+        return AgentStateMutation();
+    }
+
+    AgentStateMutation onTextMessageChunk(const TextMessageChunkEvent& event,
+                                          const AgentSubscriberParams& params) override {
+        (void)event;
+        (void)params;
+        textMessageChunkCount++;
+        return AgentStateMutation();
+    }
+
+    AgentStateMutation onToolCallStart(const ToolCallStartEvent& event,
+                                       const AgentSubscriberParams& params) override {
+        (void)event;
+        (void)params;
+        toolCallStartCount++;
+        return AgentStateMutation();
+    }
+
+    AgentStateMutation onToolCallChunk(const ToolCallChunkEvent& event,
+                                       const AgentSubscriberParams& params) override {
+        (void)event;
+        (void)params;
+        toolCallChunkCount++;
         return AgentStateMutation();
     }
 };
@@ -354,4 +382,86 @@ TEST(HttpAgentTest, RunAgentSkipsMalformedJsonAndSucceeds) {
 
     EXPECT_TRUE(successCalled);
     EXPECT_FALSE(errorCalled);
+}
+
+TEST(HttpAgentTest, RunAgentAppliesTextMessageChunksDirectly) {
+    auto mock = std::make_unique<MockHttpService>();
+    mock->sseChunks = {
+        "data: {\"type\":\"RUN_STARTED\",\"threadId\":\"t1\",\"runId\":\"r1\"}\n\n",
+        "data: {\"type\":\"TEXT_MESSAGE_CHUNK\",\"messageId\":\"msg1\",\"role\":\"assistant\",\"name\":\"planner\",\"delta\":\"Hello\"}\n\n",
+        "data: {\"type\":\"TEXT_MESSAGE_CHUNK\",\"delta\":\" World\"}\n\n",
+        "data: {\"type\":\"RUN_FINISHED\",\"threadId\":\"t1\",\"runId\":\"r1\"}\n\n",
+    };
+
+    auto agent = makeAgentWithMock(std::move(mock));
+    auto subscriber = std::make_shared<TestSubscriber>();
+    agent->subscribe(subscriber);
+
+    bool successCalled = false;
+    bool errorCalled = false;
+    RunAgentResult capturedResult;
+
+    RunAgentParams params;
+    params.threadId = "t1";
+    params.runId = "r1";
+
+    agent->runAgent(
+        params,
+        [&](const RunAgentResult& result) {
+            successCalled = true;
+            capturedResult = result;
+        },
+        [&](const std::string&) {
+            errorCalled = true;
+        });
+
+    EXPECT_TRUE(successCalled);
+    EXPECT_FALSE(errorCalled);
+    ASSERT_EQ(capturedResult.newMessages.size(), 1);
+    EXPECT_EQ(capturedResult.newMessages[0].content(), "Hello World");
+    EXPECT_EQ(capturedResult.newMessages[0].name(), "planner");
+    EXPECT_EQ(subscriber->textMessageStartCount, 0);
+    EXPECT_EQ(subscriber->textMessageChunkCount, 2);
+}
+
+TEST(HttpAgentTest, RunAgentAppliesToolCallChunksDirectly) {
+    auto mock = std::make_unique<MockHttpService>();
+    mock->sseChunks = {
+        "data: {\"type\":\"RUN_STARTED\",\"threadId\":\"t1\",\"runId\":\"r1\"}\n\n",
+        "data: {\"type\":\"TOOL_CALL_CHUNK\",\"toolCallId\":\"call1\",\"toolCallName\":\"search\",\"parentMessageId\":\"msg1\",\"delta\":\"{\\\"query\\\":\"}\n\n",
+        "data: {\"type\":\"TOOL_CALL_CHUNK\",\"delta\":\"\\\"weather\\\"}\"}\n\n",
+        "data: {\"type\":\"RUN_FINISHED\",\"threadId\":\"t1\",\"runId\":\"r1\"}\n\n",
+    };
+
+    auto agent = makeAgentWithMock(std::move(mock));
+    auto subscriber = std::make_shared<TestSubscriber>();
+    agent->subscribe(subscriber);
+
+    bool successCalled = false;
+    bool errorCalled = false;
+    RunAgentResult capturedResult;
+
+    RunAgentParams params;
+    params.threadId = "t1";
+    params.runId = "r1";
+
+    agent->runAgent(
+        params,
+        [&](const RunAgentResult& result) {
+            successCalled = true;
+            capturedResult = result;
+        },
+        [&](const std::string&) {
+            errorCalled = true;
+        });
+
+    EXPECT_TRUE(successCalled);
+    EXPECT_FALSE(errorCalled);
+    ASSERT_EQ(capturedResult.newMessages.size(), 1);
+    ASSERT_EQ(capturedResult.newMessages[0].toolCalls().size(), 1);
+    EXPECT_EQ(capturedResult.newMessages[0].id(), "msg1");
+    EXPECT_EQ(capturedResult.newMessages[0].toolCalls()[0].function.name, "search");
+    EXPECT_EQ(capturedResult.newMessages[0].toolCalls()[0].function.arguments, "{\"query\":\"weather\"}");
+    EXPECT_EQ(subscriber->toolCallStartCount, 0);
+    EXPECT_EQ(subscriber->toolCallChunkCount, 2);
 }

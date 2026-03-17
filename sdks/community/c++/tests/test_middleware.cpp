@@ -109,6 +109,18 @@ private:
     bool m_shouldStop;
 };
 
+class AfterEventMiddleware : public IMiddleware {
+public:
+    std::vector<std::unique_ptr<Event>> afterEvent(const Event& event, MiddlewareContext& context) override {
+        (void)context;
+        std::vector<std::unique_ptr<Event>> events;
+        auto after = std::make_unique<StepFinishedEvent>();
+        after->stepName = "after";
+        events.push_back(std::move(after));
+        return events;
+    }
+};
+
 // Test cases
 const std::string MOCK_SERVER_URL = "http://localhost:8080/api/agent/run";
 
@@ -244,6 +256,23 @@ TEST(MiddlewareTest, EventFiltering) {
     auto processedEvents2 = agent->middlewareChain().processEvent(std::move(event2), context2);
     
     EXPECT_EQ(processedEvents2.size(), 1);
+}
+
+TEST(MiddlewareTest, AfterEventIsPlacedAfterProcessedEvent) {
+    auto agent = HttpAgent::builder()
+        .withUrl(MOCK_SERVER_URL)
+        .build();
+
+    auto afterMiddleware = std::make_shared<AfterEventMiddleware>();
+    agent->use(afterMiddleware);
+
+    auto event = std::make_unique<RunFinishedEvent>();
+    MiddlewareContext context(nullptr, nullptr);
+    auto processedEvents = agent->middlewareChain().processEvent(std::move(event), context);
+
+    ASSERT_EQ(processedEvents.size(), 2);
+    EXPECT_EQ(processedEvents[0]->type(), EventType::RunFinished);
+    EXPECT_EQ(processedEvents[1]->type(), EventType::StepFinished);
 }
 
 // Execution Control Tests

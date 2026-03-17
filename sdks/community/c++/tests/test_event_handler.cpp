@@ -22,9 +22,11 @@ public:
     int onTextMessageStartCallCount = 0;
     int onTextMessageContentCallCount = 0;
     int onTextMessageEndCallCount = 0;
+    int onTextMessageChunkCallCount = 0;
     int onToolCallStartCallCount = 0;
     int onToolCallArgsCallCount = 0;
     int onToolCallEndCallCount = 0;
+    int onToolCallChunkCallCount = 0;
     int onToolCallResultCallCount = 0;
     int onStateDeltaCallCount = 0;
     int onStateSnapshotCallCount = 0;
@@ -70,6 +72,12 @@ public:
         onTextMessageEndCallCount++;
         return AgentStateMutation();
     }
+
+    AgentStateMutation onTextMessageChunk(const TextMessageChunkEvent& event,
+                                          const AgentSubscriberParams& params) override {
+        onTextMessageChunkCallCount++;
+        return AgentStateMutation();
+    }
     
     AgentStateMutation onToolCallStart(const ToolCallStartEvent& event,
                                       const AgentSubscriberParams& params) override {
@@ -88,6 +96,12 @@ public:
     AgentStateMutation onToolCallEnd(const ToolCallEndEvent& event,
                                     const AgentSubscriberParams& params) override {
         onToolCallEndCallCount++;
+        return AgentStateMutation();
+    }
+
+    AgentStateMutation onToolCallChunk(const ToolCallChunkEvent& event,
+                                       const AgentSubscriberParams& params) override {
+        onToolCallChunkCallCount++;
         return AgentStateMutation();
     }
     
@@ -267,6 +281,58 @@ TEST(EventHandlerTest, StopPropagationPreventsDefaultHandling) {
     
     // Default handling should not add message to handler
     EXPECT_EQ(handler.messages().size(), 0);
+}
+
+TEST(EventHandlerTest, TextMessageChunkCreatesAndAppendsMessageDirectly) {
+    std::vector<Message> messages;
+    std::string state = "{}";
+    auto subscriber = std::make_shared<MockSubscriber>();
+
+    EventHandler handler(messages, state, {subscriber});
+
+    auto firstChunk = std::make_unique<TextMessageChunkEvent>();
+    firstChunk->messageId = "msg1";
+    firstChunk->role = "assistant";
+    firstChunk->name = "planner";
+    firstChunk->delta = "Hello";
+    handler.handleEvent(std::move(firstChunk));
+
+    auto secondChunk = std::make_unique<TextMessageChunkEvent>();
+    secondChunk->delta = " World";
+    handler.handleEvent(std::move(secondChunk));
+
+    ASSERT_EQ(handler.messages().size(), 1);
+    EXPECT_EQ(handler.messages()[0].id(), "msg1");
+    EXPECT_EQ(handler.messages()[0].content(), "Hello World");
+    EXPECT_EQ(handler.messages()[0].name(), "planner");
+    EXPECT_EQ(subscriber->onTextMessageChunkCallCount, 2);
+}
+
+TEST(EventHandlerTest, ToolCallChunkCreatesAndAppendsToolCallDirectly) {
+    std::vector<Message> messages;
+    std::string state = "{}";
+    auto subscriber = std::make_shared<MockSubscriber>();
+
+    EventHandler handler(messages, state, {subscriber});
+
+    auto firstChunk = std::make_unique<ToolCallChunkEvent>();
+    firstChunk->toolCallId = "tool1";
+    firstChunk->toolCallName = "search";
+    firstChunk->parentMessageId = "msg1";
+    firstChunk->delta = "{\"query\":";
+    handler.handleEvent(std::move(firstChunk));
+
+    auto secondChunk = std::make_unique<ToolCallChunkEvent>();
+    secondChunk->delta = "\"weather\"}";
+    handler.handleEvent(std::move(secondChunk));
+
+    ASSERT_EQ(handler.messages().size(), 1);
+    EXPECT_EQ(handler.messages()[0].id(), "msg1");
+    ASSERT_EQ(handler.messages()[0].toolCalls().size(), 1);
+    EXPECT_EQ(handler.messages()[0].toolCalls()[0].id, "tool1");
+    EXPECT_EQ(handler.messages()[0].toolCalls()[0].function.name, "search");
+    EXPECT_EQ(handler.messages()[0].toolCalls()[0].function.arguments, "{\"query\":\"weather\"}");
+    EXPECT_EQ(subscriber->onToolCallChunkCallCount, 2);
 }
 
 // Text Message Buffer Accumulation Tests
