@@ -11,7 +11,10 @@ std::unique_ptr<IHttpService> HttpServiceFactory::createCurlService() {
 
 HttpService::HttpService() {
     std::call_once(s_curlInitFlag, []() {
-        curl_global_init(CURL_GLOBAL_DEFAULT);
+        CURLcode res = curl_global_init(CURL_GLOBAL_DEFAULT);
+        if (res != CURLE_OK) {
+            throw std::runtime_error(std::string("curl_global_init failed: ") + curl_easy_strerror(res));
+        }
     });
 }
 
@@ -345,9 +348,12 @@ size_t HttpService::sseHeaderCallback(char* buffer, size_t size, size_t nitems, 
             try {
                 context->httpStatusCode = std::stoi(headerLine.substr(spacePos + 1, 3));
                 Logger::debugf("[HttpService] SSE HTTP status code: ", context->httpStatusCode);
-            } catch (...) {
+            } catch (const std::invalid_argument&) {
                 Logger::errorf("[HttpService] Failed to parse HTTP status code from header: ", headerLine);
                 // set to -1, triggers error path in sseWriteCallback
+                context->httpStatusCode = -1;
+            } catch (const std::out_of_range&) {
+                Logger::errorf("[HttpService] HTTP status code out of range in header: ", headerLine);
                 context->httpStatusCode = -1;
             }
         }

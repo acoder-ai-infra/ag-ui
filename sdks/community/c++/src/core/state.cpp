@@ -172,11 +172,7 @@ void StateManager::applyPatchOp(const JsonPatchOp& op) {
 }
 
 bool StateManager::validateState() const {
-    if (m_currentState.is_null()) {
-        return false;
-    }
-
-    return true;
+    return !m_currentState.is_null();
 }
 
 nlohmann::json StateManager::createSnapshot() const {
@@ -441,7 +437,14 @@ nlohmann::json* StateManager::getValueAtPath(const std::string& path) {
             }
             current = &(*current)[segment];
         } else if (current->is_array()) {
-            size_t index = std::stoul(segment);
+            size_t index;
+            try {
+                index = std::stoul(segment);
+            } catch (const std::invalid_argument&) {
+                return nullptr;
+            } catch (const std::out_of_range&) {
+                return nullptr;
+            }
             if (index >= current->size()) {
                 return nullptr;
             }

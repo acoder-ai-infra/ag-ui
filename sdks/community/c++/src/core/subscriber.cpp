@@ -9,9 +9,8 @@ namespace agui {
 EventHandler::EventHandler(std::vector<Message> messages, const std::string &state,
                            std::vector<std::shared_ptr<IAgentSubscriber>> subscribers)
     : m_messages(std::move(messages)),
-      m_subscribers(std::move(subscribers)) {
-          m_state = state.empty() ? "{}" : state;
-      }
+      m_subscribers(std::move(subscribers)),
+      m_state(state.empty() ? "{}" : state) {}
 
 AgentStateMutation EventHandler::handleEvent(std::unique_ptr<Event> event) {
     if (!event) {
@@ -304,6 +303,7 @@ void EventHandler::handleTextMessageStart(const TextMessageStartEvent& event) {
         Message message = Message::createWithId(event.messageId, Message::roleFromString(event.role), "");
         m_messages.push_back(message);
         notifyNewMessage(m_messages.back());
+        notifyMessagesChanged();
     } else {
         existingMessage->setRole(Message::roleFromString(event.role));
     }
@@ -347,37 +347,33 @@ void EventHandler::handleTextMessageChunk(const TextMessageChunkEvent& event) {
         message->setRole(Message::roleFromString(event.role.value()));
     }
 
-    if (message && event.name.has_value()) {
+    if (event.name.has_value()) {
         message->setName(event.name.value());
     }
 
     m_textBuffers[targetMessageId] += event.delta;
-    if (message) {
-        message->appendContent(event.delta);
-    }
+    message->appendContent(event.delta);
 }
 
-void EventHandler::handleThinkingTextMessageStart(const ThinkingTextMessageStartEvent& event) {
+void EventHandler::handleThinkingTextMessageStart(const ThinkingTextMessageStartEvent&) {
     // Thinking messages are not persisted to message history; clear the dedicated buffer
     m_thinkingBuffer.clear();
-    (void)event;
 }
 
 void EventHandler::handleThinkingTextMessageContent(const ThinkingTextMessageContentEvent& event) {
     m_thinkingBuffer += event.delta;
 }
 
-void EventHandler::handleThinkingTextMessageEnd(const ThinkingTextMessageEndEvent& event) {
+void EventHandler::handleThinkingTextMessageEnd(const ThinkingTextMessageEndEvent&) {
     m_thinkingBuffer.clear();
-    (void)event;
 }
 
 void EventHandler::handleToolCallStart(const ToolCallStartEvent& event) {
     Message* msg = nullptr;
 
-    if (event.parentMessageId.has_value() && !m_messages.empty() &&
-        m_messages.back().id() == event.parentMessageId.value()) {
-        msg = &m_messages.back();
+    // Full scan: parentMessageId may refer to any message in history, not just the last one.
+    if (event.parentMessageId.has_value()) {
+        msg = findMessage(event.parentMessageId.value());
     }
 
     if (!msg) {
@@ -453,14 +449,12 @@ void EventHandler::handleStateSnapshot(const StateSnapshotEvent& event) {
 }
 
 void EventHandler::handleStateDelta(const StateDeltaEvent& event) {
-    try {
-        StateManager stateManager(nlohmann::json::parse(m_state));
-        stateManager.applyPatch(event.delta);
-        m_state = stateManager.currentState().dump();
-        notifyStateChanged();
-    } catch(const std::exception &e) {
-        Logger::errorf("handleStateDelta: failed to apply patch: ", e.what());
-    }
+    // Re-throw on failure: a state divergence is a fatal condition. The caller
+    // (processAvailableEvents) will catch it and terminate the run with an error.
+    StateManager stateManager(nlohmann::json::parse(m_state));
+    stateManager.applyPatch(event.delta);
+    m_state = stateManager.currentState().dump();
+    notifyStateChanged();
 }
 
 void EventHandler::handleMessagesSnapshot(const MessagesSnapshotEvent& event) {
@@ -468,8 +462,7 @@ void EventHandler::handleMessagesSnapshot(const MessagesSnapshotEvent& event) {
     notifyMessagesChanged();
 }
 
-void EventHandler::handleRunStarted(const RunStartedEvent& event) {
-    (void)event;
+void EventHandler::handleRunStarted(const RunStartedEvent&) {
 }
 
 void EventHandler::handleRunFinished(const RunFinishedEvent& event) {
@@ -515,28 +508,44 @@ AgentStateMutation EventHandler::notifySubscribers(
 void EventHandler::notifyNewMessage(const Message& message) {
     AgentSubscriberParams params = createParams();
     for (auto& subscriber : m_subscribers) {
-        subscriber->onNewMessage(message, params);
+        try {
+            subscriber->onNewMessage(message, params);
+        } catch (const std::exception& e) {
+            Logger::errorf("notifyNewMessage: subscriber error: ", e.what());
+        }
     }
 }
 
 void EventHandler::notifyNewToolCall(const ToolCall& toolCall) {
     AgentSubscriberParams params = createParams();
     for (auto& subscriber : m_subscribers) {
-        subscriber->onNewToolCall(toolCall, params);
+        try {
+            subscriber->onNewToolCall(toolCall, params);
+        } catch (const std::exception& e) {
+            Logger::errorf("notifyNewToolCall: subscriber error: ", e.what());
+        }
     }
 }
 
 void EventHandler::notifyMessagesChanged() {
     AgentSubscriberParams params = createParams();
     for (auto& subscriber : m_subscribers) {
-        subscriber->onMessagesChanged(params);
+        try {
+            subscriber->onMessagesChanged(params);
+        } catch (const std::exception& e) {
+            Logger::errorf("notifyMessagesChanged: subscriber error: ", e.what());
+        }
     }
 }
 
 void EventHandler::notifyStateChanged() {
     AgentSubscriberParams params = createParams();
     for (auto& subscriber : m_subscribers) {
-        subscriber->onStateChanged(params);
+        try {
+            subscriber->onStateChanged(params);
+        } catch (const std::exception& e) {
+            Logger::errorf("notifyStateChanged: subscriber error: ", e.what());
+        }
     }
 }
 
@@ -628,7 +637,7 @@ void EventHandler::handleActivityDelta(const ActivityDeltaEvent& event) {
         existing->setContent(stateManager.currentState().dump());
         existing->setActivityType(event.activityType);  // sync activityType from delta event
     } catch (const std::exception& e) {
-        Logger::warningf("handleActivityDelta: failed to apply patch for '", event.messageId, "': ", e.what());
+        Logger::errorf("handleActivityDelta: failed to apply patch for '", event.messageId, "': ", e.what());
         return;
     }
 

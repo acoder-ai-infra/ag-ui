@@ -12,7 +12,7 @@
 namespace agui {
 
 /**
- * @brief Event type enumeration (26 event types in total)
+ * @brief Event type enumeration (27 event types in total)
  */
 enum class EventType {
     // Text message events (4 types)

@@ -27,7 +27,13 @@ RunAgentInput MiddlewareChain::processRequest(const RunAgentInput& input, Middle
             context.shouldContinue = false;
             break;
         }
-        processedInput = middleware->onRequest(processedInput, context);
+        try {
+            processedInput = middleware->onRequest(processedInput, context);
+        } catch (const std::exception& e) {
+            Logger::errorf("[MiddlewareChain] processRequest: middleware threw: ", e.what());
+            context.shouldContinue = false;
+            break;
+        }
         if (!context.shouldContinue) {
             break;
         }
@@ -40,7 +46,12 @@ RunAgentResult MiddlewareChain::processResponse(const RunAgentResult& result, Mi
     RunAgentResult processedResult = result;
 
     for (auto it = m_middlewares.rbegin(); it != m_middlewares.rend(); ++it) {
-        processedResult = (*it)->onResponse(processedResult, context);
+        try {
+            processedResult = (*it)->onResponse(processedResult, context);
+        } catch (const std::exception& e) {
+            Logger::errorf("[MiddlewareChain] processResponse: middleware threw: ", e.what());
+            break;
+        }
     }
 
     return processedResult;

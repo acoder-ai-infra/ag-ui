@@ -32,9 +32,11 @@ std::string UuidGenerator::generate() {
     uint32_t random = getRandomNumber();
     uint32_t count = m_counter.fetch_add(1);
 
-    // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
-    // - 13th character is fixed to '4' (version)
-    // - 17th character's high 2 bits are fixed to '10' (variant)
+    // Custom hybrid UUID formatted to resemble UUID v4 layout:
+    //   [32-bit timestamp low] - [16-bit timestamp high] - 4[12-bit random] - [16-bit variant+random] - [32-bit counter][16-bit random]
+    // NOTE: This is NOT a standards-compliant UUID v4; the first 48 bits encode a
+    // millisecond timestamp rather than random data. The '4' version nibble and
+    // variant bits are kept for visual compatibility with UUID-shaped identifiers.
 
     char uuid[37];
     snprintf(uuid, sizeof(uuid), "%08x-%04x-4%03x-%04x-%08x%04x",

@@ -15,30 +15,15 @@ void EventVerifier::verify(const Event& event) {
 
     switch (eventType) {
         // Text message events
-        case EventType::TextMessageStart: {
-            const auto* startEvent = static_cast<const TextMessageStartEvent*>(&event);
-            if (startEvent) {
-                std::string messageId = startEvent->messageId;
-                verifyTextMessage(eventType, messageId);
-            }
+        case EventType::TextMessageStart:
+            verifyTextMessage(eventType, static_cast<const TextMessageStartEvent*>(&event)->messageId);
             break;
-        }
-        case EventType::TextMessageContent: {
-            const auto* contentEvent = static_cast<const TextMessageContentEvent*>(&event);
-            if (contentEvent) {
-                std::string messageId = contentEvent->messageId;
-                verifyTextMessage(eventType, messageId);
-            }
+        case EventType::TextMessageContent:
+            verifyTextMessage(eventType, static_cast<const TextMessageContentEvent*>(&event)->messageId);
             break;
-        }
-        case EventType::TextMessageEnd: {
-            const auto* endEvent = static_cast<const TextMessageEndEvent*>(&event);
-            if (endEvent) {
-                std::string messageId = endEvent->messageId;
-                verifyTextMessage(eventType, messageId);
-            }
+        case EventType::TextMessageEnd:
+            verifyTextMessage(eventType, static_cast<const TextMessageEndEvent*>(&event)->messageId);
             break;
-        }
 
         // Thinking text message events
         case EventType::ThinkingTextMessageStart:
@@ -48,29 +33,15 @@ void EventVerifier::verify(const Event& event) {
             break;
 
         // Tool call events
-        case EventType::ToolCallStart: {
-            const auto* startEvent = static_cast<const ToolCallStartEvent*>(&event);
-            if (startEvent) {
-                std::string toolCallId = startEvent->toolCallId;
-                verifyToolCall(eventType, toolCallId);
-            }
+        case EventType::ToolCallStart:
+            verifyToolCall(eventType, static_cast<const ToolCallStartEvent*>(&event)->toolCallId);
             break;
-        }
-        case EventType::ToolCallArgs: {
-            const auto* argsEvent = static_cast<const ToolCallArgsEvent*>(&event);
-            if (argsEvent) {
-                std::string toolCallId = argsEvent->toolCallId;
-                verifyToolCall(eventType, toolCallId);
-            }
+        case EventType::ToolCallArgs:
+            verifyToolCall(eventType, static_cast<const ToolCallArgsEvent*>(&event)->toolCallId);
             break;
-        }
-        case EventType::ToolCallEnd: {
-            const auto* endEvent = static_cast<const ToolCallEndEvent*>(&event);
-            if (endEvent) {
-                verifyToolCall(eventType, endEvent->toolCallId);
-            }
+        case EventType::ToolCallEnd:
+            verifyToolCall(eventType, static_cast<const ToolCallEndEvent*>(&event)->toolCallId);
             break;
-        }
 
         // Thinking events
         case EventType::ThinkingStart:

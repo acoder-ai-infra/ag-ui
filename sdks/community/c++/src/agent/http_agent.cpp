@@ -205,7 +205,7 @@ void HttpAgent::runAgent(const RunAgentParams& params, AgentSuccessCallback onSu
     middlewareContext.currentMessages = &m_eventHandler->messages();
     middlewareContext.currentState = &m_eventHandler->state();
     
-    if (m_middlewareChain.size() > 0) {
+    if (!m_middlewareChain.empty()) {
         Logger::infof("Processing request through ", m_middlewareChain.size(), " middlewares");
         input = m_middlewareChain.processRequest(input, middlewareContext);
         
@@ -293,7 +293,7 @@ void HttpAgent::processAvailableEvents() {
                 continue;
             }
             // Process event through middleware
-            if (m_middlewareChain.size() > 0) {
+            if (!m_middlewareChain.empty()) {
                 auto processedEvents = m_middlewareChain.processEvent(std::move(event), middlewareContext);
 
                 bool shouldStop = false;
@@ -350,9 +350,11 @@ void HttpAgent::processAvailableEvents() {
         }
     }
 
-    // Check for parsing errors
-    if (!m_sseParser->getLastError().empty()) {
-        Logger::warningf("SSE parser error: ", m_sseParser->getLastError());
+    // Check for SSE parsing errors — treat as run error to prevent silent data loss.
+    if (!m_sseParser->getLastError().empty() && !m_runErrorOccurred) {
+        Logger::errorf("[HttpAgent] SSE parser error detected: ", m_sseParser->getLastError());
+        m_runErrorOccurred = true;
+        m_runErrorMessage = std::string("SSE parser error: ") + m_sseParser->getLastError();
     }
 }
 
@@ -401,18 +403,27 @@ void HttpAgent::handleStreamComplete(const HttpResponse& response, AgentSuccessC
         }
     }
 
-    // Process response through middleware
-    if (m_middlewareChain.size() > 0) {
-        Logger::infof("Processing response through ", m_middlewareChain.size(), " middlewares");
-        MiddlewareContext middlewareContext(nullptr, nullptr);
-        middlewareContext.currentMessages = &m_eventHandler->messages();
-        middlewareContext.currentState = &m_eventHandler->state();
-        result = m_middlewareChain.processResponse(result, middlewareContext);
-    }
+    // Wrap the remaining path in try/catch so cleanupPerRunSubscribers always runs,
+    // even if processResponse or the onSuccess callback throws.
+    try {
+        if (!m_middlewareChain.empty()) {
+            Logger::infof("Processing response through ", m_middlewareChain.size(), " middlewares");
+            MiddlewareContext middlewareContext(nullptr, nullptr);
+            middlewareContext.currentMessages = &m_eventHandler->messages();
+            middlewareContext.currentState = &m_eventHandler->state();
+            result = m_middlewareChain.processResponse(result, middlewareContext);
+        }
 
-    // Call success callback
-    if (onSuccess) {
-        onSuccess(result);
+        if (onSuccess) {
+            onSuccess(result);
+        }
+    } catch (const std::exception& e) {
+        Logger::errorf("[HttpAgent] Error in success completion path: ", e.what());
+        cleanupPerRunSubscribers();
+        if (onError) {
+            onError(std::string("Error completing run: ") + e.what());
+        }
+        return;
     }
 
     // Cleanup per-run subscribers after run completes
