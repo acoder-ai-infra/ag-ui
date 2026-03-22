@@ -216,7 +216,7 @@ void HttpService::sendSseRequest(const HttpRequest& request, SseDataCallback sse
         curl_easy_cleanup(curl);
 
     } catch (const std::exception& e) {
-        Logger::debugf("[HttpService] Exception caught: ", e.what());
+        Logger::errorf("[HttpService] Exception caught: ", e.what());
         if (headers) {
             curl_slist_free_all(headers);
         }

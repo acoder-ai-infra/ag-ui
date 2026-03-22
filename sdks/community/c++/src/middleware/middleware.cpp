@@ -50,7 +50,7 @@ RunAgentResult MiddlewareChain::processResponse(const RunAgentResult& result, Mi
             processedResult = (*it)->onResponse(processedResult, context);
         } catch (const std::exception& e) {
             Logger::errorf("[MiddlewareChain] processResponse: middleware threw: ", e.what());
-            break;
+            throw;  // re-throw: returning a partial result would silently corrupt the response
         }
     }
 
@@ -73,27 +73,32 @@ std::vector<std::unique_ptr<Event>> MiddlewareChain::processEvent(std::unique_pt
             break;
         }
 
-        // 1. Check if event should be processed (event filtering)
-        if (!middleware->shouldProcessEvent(*processedEvent, context)) {
-            // Filter out this event, return empty list
-            return {};
-        }
-
-        // 2. Generate before events
-        auto beforeEvents = middleware->beforeEvent(*processedEvent, context);
-        for (auto& e : beforeEvents) {
-            result.push_back(std::move(e));
-        }
-
-        // 3. Process event
-        processedEvent = middleware->onEvent(std::move(processedEvent), context);
-
-        // 4. Generate after events
-        if (processedEvent) {
-            auto middlewareAfterEvents = middleware->afterEvent(*processedEvent, context);
-            for (auto& e : middlewareAfterEvents) {
-                afterEvents.push_back(std::move(e));
+        try {
+            // 1. Check if event should be processed (event filtering)
+            if (!middleware->shouldProcessEvent(*processedEvent, context)) {
+                // Filter out this event, return empty list
+                return {};
             }
+
+            // 2. Generate before events
+            auto beforeEvents = middleware->beforeEvent(*processedEvent, context);
+            for (auto& e : beforeEvents) {
+                result.push_back(std::move(e));
+            }
+
+            // 3. Process event
+            processedEvent = middleware->onEvent(std::move(processedEvent), context);
+
+            // 4. Generate after events
+            if (processedEvent) {
+                auto middlewareAfterEvents = middleware->afterEvent(*processedEvent, context);
+                for (auto& e : middlewareAfterEvents) {
+                    afterEvents.push_back(std::move(e));
+                }
+            }
+        } catch (const std::exception& e) {
+            Logger::errorf("[MiddlewareChain] processEvent: middleware threw: ", e.what());
+            break;
         }
     }
 

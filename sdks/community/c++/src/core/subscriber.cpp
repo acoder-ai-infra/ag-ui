@@ -382,6 +382,7 @@ void EventHandler::handleToolCallStart(const ToolCallStartEvent& event) {
         Message message = Message::createWithId(targetMessageId, MessageRole::Assistant, "");
         m_messages.push_back(message);
         msg = &m_messages.back();
+        notifyNewMessage(*msg);
     }
 
     ToolCall toolCall;
@@ -499,6 +500,8 @@ AgentStateMutation EventHandler::notifySubscribers(
             }
         } catch (const std::exception& e) {
             Logger::errorf("notifySubscribers: subscriber error: ", e.what());
+        } catch (...) {
+            Logger::errorf("notifySubscribers: subscriber threw unknown exception");
         }
     }
 
@@ -512,6 +515,8 @@ void EventHandler::notifyNewMessage(const Message& message) {
             subscriber->onNewMessage(message, params);
         } catch (const std::exception& e) {
             Logger::errorf("notifyNewMessage: subscriber error: ", e.what());
+        } catch (...) {
+            Logger::errorf("notifyNewMessage: subscriber threw unknown exception");
         }
     }
 }
@@ -523,6 +528,8 @@ void EventHandler::notifyNewToolCall(const ToolCall& toolCall) {
             subscriber->onNewToolCall(toolCall, params);
         } catch (const std::exception& e) {
             Logger::errorf("notifyNewToolCall: subscriber error: ", e.what());
+        } catch (...) {
+            Logger::errorf("notifyNewToolCall: subscriber threw unknown exception");
         }
     }
 }
@@ -534,6 +541,8 @@ void EventHandler::notifyMessagesChanged() {
             subscriber->onMessagesChanged(params);
         } catch (const std::exception& e) {
             Logger::errorf("notifyMessagesChanged: subscriber error: ", e.what());
+        } catch (...) {
+            Logger::errorf("notifyMessagesChanged: subscriber threw unknown exception");
         }
     }
 }
@@ -545,6 +554,8 @@ void EventHandler::notifyStateChanged() {
             subscriber->onStateChanged(params);
         } catch (const std::exception& e) {
             Logger::errorf("notifyStateChanged: subscriber error: ", e.what());
+        } catch (...) {
+            Logger::errorf("notifyStateChanged: subscriber threw unknown exception");
         }
     }
 }
@@ -612,7 +623,8 @@ void EventHandler::handleActivitySnapshot(const ActivitySnapshotEvent& event) {
 void EventHandler::handleActivityDelta(const ActivityDeltaEvent& event) {
     Message* existing = findMessage(event.messageId);
     if (!existing) {
-        return;  // silently skip, consistent with TypeScript
+        Logger::warningf("handleActivityDelta: unknown messageId '", event.messageId, "', skipping");
+        return;
     }
 
     if (existing->role() != MessageRole::Activity) {

@@ -285,7 +285,19 @@ void HttpAgent::processAvailableEvents() {
             if (eventData.empty()) {
                 continue;
             }
-            nlohmann::json eventJson = nlohmann::json::parse(eventData);
+
+            // Parse raw SSE data — parse_error here means a malformed/heartbeat
+            // packet; skip it.  Any parse_error thrown later (e.g. inside
+            // handleStateDelta) must reach the outer fatal handler, so isolate
+            // this parse in its own inner try/catch.
+            nlohmann::json eventJson;
+            try {
+                eventJson = nlohmann::json::parse(eventData);
+            } catch (const nlohmann::json::parse_error& e) {
+                Logger::warningf("[HttpAgent] Skipping malformed SSE event (JSON parse error): ", e.what());
+                continue;
+            }
+
             // Parse as Event object
             std::unique_ptr<Event> event(EventParser::parse(eventJson));
 
@@ -339,9 +351,6 @@ void HttpAgent::processAvailableEvents() {
                     break;
                 }
             }
-        } catch (const nlohmann::json::parse_error& e) {
-            // Malformed JSON in a single SSE event (e.g. heartbeat packet) — skip and continue
-            Logger::warningf("[HttpAgent] Skipping malformed SSE event (JSON parse error): ", e.what());
         } catch (const std::exception& e) {
             Logger::errorf("[HttpAgent] Fatal error processing event: ", e.what());
             m_runErrorOccurred = true;
@@ -365,7 +374,13 @@ void HttpAgent::handleStreamComplete(const HttpResponse& response, AgentSuccessC
         Logger::errorf("HTTP request failed with status: ", response.statusCode);
         cleanupPerRunSubscribers();
         if (onError) {
-            onError("HTTP request failed with status: " + std::to_string(response.statusCode));
+            try {
+                onError("HTTP request failed with status: " + std::to_string(response.statusCode));
+            } catch (const std::exception& ex) {
+                Logger::errorf("[HttpAgent] onError callback threw: ", ex.what());
+            } catch (...) {
+                Logger::errorf("[HttpAgent] onError callback threw unknown exception");
+            }
         }
         return;
     }
@@ -386,7 +401,13 @@ void HttpAgent::handleStreamComplete(const HttpResponse& response, AgentSuccessC
         Logger::errorf("[HttpAgent] Run terminated with error: ", m_runErrorMessage);
         cleanupPerRunSubscribers();
         if (onError) {
-            onError(m_runErrorMessage);
+            try {
+                onError(m_runErrorMessage);
+            } catch (const std::exception& ex) {
+                Logger::errorf("[HttpAgent] onError callback threw: ", ex.what());
+            } catch (...) {
+                Logger::errorf("[HttpAgent] onError callback threw unknown exception");
+            }
         }
         return;
     }
